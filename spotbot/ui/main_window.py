@@ -53,7 +53,6 @@ from spotbot.constants import (
     CCXT_AVAILABLE,
     CHART_CDN_URL,
     CONFIG_DIR,
-    TIMEFRAMES,
     FLI_ADX_LEN,
     FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
@@ -82,7 +81,7 @@ from spotbot.constants import (
     TRADE_NOTIFIER_AVAILABLE,
 )
 from spotbot.exchange import ExchangeManager
-from spotbot.indicators import IndicatorEngine
+from spotbot.indicators import IndicatorEngine, backtest_fli_signals
 from spotbot.styles import STYLE_QSS
 from spotbot.trading import TradingEngine
 from spotbot.transaction_logger import TransactionLogger
@@ -91,18 +90,16 @@ from spotbot.ui.coin_session import CoinSession
 from spotbot.ui.coin_tab_widget import CoinTabWidget
 from spotbot.ui.pnl_dialog import PnLDialog
 from spotbot.ui.resizable_ui import ResizableUI
-from spotbot.chart_renderer import ChartRenderer, FLIChartWorker, _FLI_HTML_TEMPLATE, _to_chart_time
-from spotbot.indicators import backtest_fli_signals
 from spotbot.workers import (
+    BacktestWorker,
+    BestTimeframeWorker,
     DataFetchWorker,
     IndicatorCalcWorker,
     PairLoaderWorker,
     ParallelPipeline,
     ProcessWorker,
-    WebSocketWorker,
     WalletBuyWorker,
-    BacktestWorker,
-    BestTimeframeWorker,
+    WebSocketWorker,
 )
 
 try:
@@ -477,27 +474,28 @@ class MainWindow(QWidget):
             for m in markers:
                 action = m.get("action")
                 if action == "bt_buy":
-                    chart_markers.append({
-                        "time": m["time"],
-                        "position": "belowBar",
-                        "color": "#2962ff",   # Blue — distinct from trade green
-                        "shape": "arrowUp",
-                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
-                        "size": 1,
-                    })
+                    chart_markers.append(
+                        {
+                            "time": m["time"],
+                            "position": "belowBar",
+                            "color": "#2962ff",  # Blue — distinct from trade green
+                            "shape": "arrowUp",
+                            "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                            "size": 1,
+                        }
+                    )
                 elif action == "bt_sell":
-                    chart_markers.append({
-                        "time": m["time"],
-                        "position": "aboveBar",
-                        "color": "#ff6d00",   # Orange — distinct from trade red
-                        "shape": "arrowDown",
-                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
-                        "size": 1,
-                    })
-            self._chart_js(
-                pair,
-                f"setBacktestMarkers({json.dumps(chart_markers)});"
-            )
+                    chart_markers.append(
+                        {
+                            "time": m["time"],
+                            "position": "aboveBar",
+                            "color": "#ff6d00",  # Orange — distinct from trade red
+                            "shape": "arrowDown",
+                            "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                            "size": 1,
+                        }
+                    )
+            self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
             # Update backtest stats panel
             self._chart_js(
                 pair,
@@ -510,7 +508,7 @@ class MainWindow(QWidget):
                 f"{stats.get('equity_final', 0):.2f},"
                 f"{stats.get('equity_peak', 0):.2f},"
                 f"''"
-                f");"
+                f");",
             )
             if markers:
                 self._set_status(
@@ -561,23 +559,27 @@ class MainWindow(QWidget):
         for m in markers:
             action = m.get("action")
             if action == "bt_buy":
-                chart_markers.append({
-                    "time": m["time"],
-                    "position": "belowBar",
-                    "color": "#2962ff",
-                    "shape": "arrowUp",
-                    "text": f"BT BUY @ {m.get('price', 0):.4f}",
-                    "size": 1,
-                })
+                chart_markers.append(
+                    {
+                        "time": m["time"],
+                        "position": "belowBar",
+                        "color": "#2962ff",
+                        "shape": "arrowUp",
+                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    }
+                )
             elif action == "bt_sell":
-                chart_markers.append({
-                    "time": m["time"],
-                    "position": "aboveBar",
-                    "color": "#ff6d00",
-                    "shape": "arrowDown",
-                    "text": f"BT SELL @ {m.get('price', 0):.4f}",
-                    "size": 1,
-                })
+                chart_markers.append(
+                    {
+                        "time": m["time"],
+                        "position": "aboveBar",
+                        "color": "#ff6d00",
+                        "shape": "arrowDown",
+                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    }
+                )
         self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
 
         # Update backtest stats panel (with equity and duration)
@@ -594,7 +596,7 @@ class MainWindow(QWidget):
             f"updateBacktestStats("
             f"{total_trades},{win_rate:.1f},{wins},{losses},{total_pnl:.2f},"
             f"{eq_final:.2f},{eq_peak:.2f},"
-            f"{json.dumps(duration_str)});"
+            f"{json.dumps(duration_str)});",
         )
 
         if total_trades > 0:
@@ -630,11 +632,21 @@ class MainWindow(QWidget):
         for cm in chart_markers:
             # Extract buy trade data from marker text
             text = cm.get("text", "")
-            buy_trades_data.append({
-                "date": text.split(" @ ")[0].replace("BUY ", "") if " @ " in text else "?",
-                "price": float(cm.get("text", "").split("@ ")[1].strip()) if "@" in cm.get("text", "") else 0,
-                "qty": 0,
-            })
+            buy_trades_data.append(
+                {
+                    "date": (
+                        text.split(" @ ")[0].replace("BUY ", "")
+                        if " @ " in text
+                        else "?"
+                    ),
+                    "price": (
+                        float(cm.get("text", "").split("@ ")[1].strip())
+                        if "@" in cm.get("text", "")
+                        else 0
+                    ),
+                    "qty": 0,
+                }
+            )
 
         self._pair_wallet_buy_markers[pair] = buy_trades_data
 
@@ -651,7 +663,7 @@ class MainWindow(QWidget):
 
         self._chart_js(
             pair,
-            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});"
+            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});",
         )
         self._set_status(
             f"{pair}: found {len(chart_markers)} buy trades, avg entry {avg_price:.6f}"
@@ -659,9 +671,7 @@ class MainWindow(QWidget):
 
     def _on_auto_backtest_toggled(self, checked: bool):
         """Handle auto-backtest checkbox toggle."""
-        self._set_status(
-            f"Auto Backtest {'enabled' if checked else 'disabled'}"
-        )
+        self._set_status(f"Auto Backtest {'enabled' if checked else 'disabled'}")
         # If disabled, clear backtest panels for all pairs
         if not checked:
             for pair in list(self._pair_backtest_markers.keys()):
@@ -688,8 +698,8 @@ class MainWindow(QWidget):
 
         self.ui.btnBestTimeframe.setEnabled(False)
         self.ui.btnBestTimeframe.setText("⏳ Testing...")
-        self.ui.lblTfBacktestStatus.setVisible(True)
-        self.ui.lblTfBacktestStatus.setText(f"Testing timeframes for {pair}…")
+        # self.ui.lblTfBacktestStatus.setVisible(True)
+        self._set_status(f"Testing timeframes for {pair}…")
 
         worker = BestTimeframeWorker(
             self.exch_mgr, pair, self._fli_params, investment, parent=self
@@ -703,7 +713,7 @@ class MainWindow(QWidget):
     @Slot(str, str, float, float)
     def _on_best_tf_progress(self, pair, tf, eq_final, eq_peak):
         """Update progress as each timeframe is tested."""
-        self.ui.lblTfBacktestStatus.setText(
+        self._set_status(
             f"Testing {pair}: {tf} → Eq.Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
         )
         self._set_status(
@@ -711,19 +721,23 @@ class MainWindow(QWidget):
         )
 
     @Slot(str, str, float, float, object)
-    def _on_best_tf_complete(self, pair, best_tf, best_eq_final, best_eq_peak, all_results):
+    def _on_best_tf_complete(
+        self, pair, best_tf, best_eq_final, best_eq_peak, all_results
+    ):
         """Handle best-timeframe results and show recommendation."""
         self.ui.btnBestTimeframe.setEnabled(True)
         self.ui.btnBestTimeframe.setText("🔍 Best Timeframe")
 
         if not best_tf:
-            self.ui.lblTfBacktestStatus.setText(f"No suitable timeframe found for {pair}")
+            self._set_status(f"No suitable timeframe found for {pair}")
             self._set_status(f"⚠️ [BestTF] No suitable timeframe found for {pair}")
             return
 
         # Build summary table
         summary_lines = [f"━━ {pair} Timeframe Comparison ━━"]
-        for r in sorted(all_results, key=lambda x: x.get("equity_final", 0), reverse=True):
+        for r in sorted(
+            all_results, key=lambda x: x.get("equity_final", 0), reverse=True
+        ):
             tf = r["timeframe"]
             eq_f = r["equity_final"]
             eq_p = r["equity_peak"]
@@ -736,8 +750,8 @@ class MainWindow(QWidget):
             )
 
         summary_text = "\n".join(summary_lines)
-        self.ui.lblTfBacktestStatus.setText(summary_text)
-        self.ui.lblTfBacktestStatus.setVisible(True)
+        self._set_status(summary_text)
+        # self.ui.lblTfBacktestStatus.setVisible(True)
 
         # Show recommendation dialog
         recommendation = (
@@ -746,7 +760,9 @@ class MainWindow(QWidget):
             f"<tr style='color:#aaa'><td><b>Timeframe</b></td><td><b>Eq.Final</b></td>"
             f"<td><b>Eq.Peak</b></td><td><b>Win Rate</b></td><td><b>Trades</b></td></tr>"
         )
-        for r in sorted(all_results, key=lambda x: x.get("equity_final", 0), reverse=True):
+        for r in sorted(
+            all_results, key=lambda x: x.get("equity_final", 0), reverse=True
+        ):
             tf = r["timeframe"]
             eq_f = r["equity_final"]
             eq_p = r["equity_peak"]
@@ -798,8 +814,8 @@ class MainWindow(QWidget):
         self.ui.btnBestTimeframe.setEnabled(True)
         self.ui.btnBestTimeframe.setText("🔍 Best Timeframe")
         self._set_status(f"⚠️ [BestTF] {pair}: {msg}")
-        self.ui.lblTfBacktestStatus.setText(f"Error: {msg}")
-        self.ui.lblTfBacktestStatus.setVisible(True)
+        self._set_status(f"Error: {msg}")
+        # self.ui.lblTfBacktestStatus.setVisible(True)
 
     @staticmethod
     def _fli_ts(row_time):
@@ -937,23 +953,27 @@ class MainWindow(QWidget):
             for m in backtest_markers:
                 action = m.get("action")
                 if action == "bt_buy":
-                    bt_chart.append({
-                        "time": m["time"],
-                        "position": "belowBar",
-                        "color": "#2962ff",
-                        "shape": "arrowUp",
-                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
-                        "size": 1,
-                    })
+                    bt_chart.append(
+                        {
+                            "time": m["time"],
+                            "position": "belowBar",
+                            "color": "#2962ff",
+                            "shape": "arrowUp",
+                            "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                            "size": 1,
+                        }
+                    )
                 elif action == "bt_sell":
-                    bt_chart.append({
-                        "time": m["time"],
-                        "position": "aboveBar",
-                        "color": "#ff6d00",
-                        "shape": "arrowDown",
-                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
-                        "size": 1,
-                    })
+                    bt_chart.append(
+                        {
+                            "time": m["time"],
+                            "position": "aboveBar",
+                            "color": "#ff6d00",
+                            "shape": "arrowDown",
+                            "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                            "size": 1,
+                        }
+                    )
             self._chart_js(pair, f"setBacktestMarkers({json.dumps(bt_chart)});")
 
     def _update_fli_info_panel(self, pair: str, row):
@@ -1003,7 +1023,11 @@ class MainWindow(QWidget):
         d_pnl = float(summary.get("realized_pnl_usdt", 0.0))
         t_pnl = d_pnl + u_pnl
         mode = "LIVE" if self.ui.radLive.isChecked() else "DEMO"
-        wallet_val = self._portfolio_balance if self._portfolio_balance > 0 else self.ui.lnWalletBalance.value()
+        wallet_val = (
+            self._portfolio_balance
+            if self._portfolio_balance > 0
+            else self.ui.lnWalletBalance.value()
+        )
         self._chart_js(
             pair,
             f"updateTradePanel("
@@ -1214,7 +1238,9 @@ class MainWindow(QWidget):
 
         # Collect only buy trades, sorted chronologically
         buy_trades = []
-        for t in sorted(trades, key=lambda x: x.get("timestamp") or x.get("datetime") or 0):
+        for t in sorted(
+            trades, key=lambda x: x.get("timestamp") or x.get("datetime") or 0
+        ):
             side = str(t.get("side") or "").lower()
             if side != "buy":
                 continue
@@ -1234,12 +1260,14 @@ class MainWindow(QWidget):
                 date_str = dt.strftime("%m-%d %H:%M")
             except Exception:
                 date_str = "?"
-            buy_trades.append({
-                "ts": ts,
-                "price": price,
-                "qty": qty,
-                "date": date_str,
-            })
+            buy_trades.append(
+                {
+                    "ts": ts,
+                    "price": price,
+                    "qty": qty,
+                    "date": date_str,
+                }
+            )
 
         if not buy_trades:
             return
@@ -1253,20 +1281,19 @@ class MainWindow(QWidget):
             chart_time = _to_chart_time(bt["ts"])
             if chart_time is None:
                 continue
-            chart_markers.append({
-                "time": chart_time,
-                "position": "belowBar",
-                "color": "#e040fb",  # Purple/magenta — distinct from BT BUY (blue) and live BUY (green)
-                "shape": "arrowUp",
-                "text": f"BUY {bt['date']} @ {bt['price']:.4f}",
-                "size": 2,
-            })
+            chart_markers.append(
+                {
+                    "time": chart_time,
+                    "position": "belowBar",
+                    "color": "#e040fb",  # Purple/magenta — distinct from BT BUY (blue) and live BUY (green)
+                    "shape": "arrowUp",
+                    "text": f"BUY {bt['date']} @ {bt['price']:.4f}",
+                    "size": 2,
+                }
+            )
 
         # Push markers to chart
-        self._chart_js(
-            pair,
-            f"setWalletBuyMarkers({json.dumps(chart_markers)});"
-        )
+        self._chart_js(pair, f"setWalletBuyMarkers({json.dumps(chart_markers)});")
 
         # Update wallet buy info panel
         total_qty = sum(bt["qty"] for bt in buy_trades)
@@ -1283,7 +1310,7 @@ class MainWindow(QWidget):
             f"{json.dumps(panel_buys)},"
             f"{total_qty},"
             f"{avg_price}"
-            f");"
+            f");",
         )
 
         self._set_status(
@@ -1642,12 +1669,18 @@ class MainWindow(QWidget):
             # just the trade markers so the user sees the PENDING badge
             # even before the FLI worker finishes.
             self._set_markers(
-                pair, None, trade_markers=self._pair_markers.get(pair, []),
+                pair,
+                None,
+                trade_markers=self._pair_markers.get(pair, []),
                 backtest_markers=bt_markers,
             )
             return
-        self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []),
-                          backtest_markers=bt_markers)
+        self._set_markers(
+            pair,
+            df,
+            trade_markers=self._pair_markers.get(pair, []),
+            backtest_markers=bt_markers,
+        )
 
     def _format_fli_data(self, fli_data: dict, candles: list) -> list[str]:
         """Build the JS call list that pushes FLI indicator series + UI state
@@ -1976,9 +2009,7 @@ class MainWindow(QWidget):
         )
         pct = self.ui.slidInvistmineAmount.value()
         self.ui.dsbInvestmintAmount.blockSignals(True)
-        self.ui.dsbInvestmintAmount.setValue(
-            pct * self._portfolio_balance / 100.0
-        )
+        self.ui.dsbInvestmintAmount.setValue(pct * self._portfolio_balance / 100.0)
         self.ui.dsbInvestmintAmount.blockSignals(False)
 
     # ── Exchange selected → load spot pairs with progress ──
@@ -2139,8 +2170,14 @@ class MainWindow(QWidget):
             self.ui.dsbInvestmintAmount.setValue(inv)
             self.ui.dsbInvestmintAmount.blockSignals(False)
             # Sync slider percentage
-            port = self._portfolio_balance if self._portfolio_balance > 0 else (
-                self.ui.lnWalletBalance.value() if self.ui.lnWalletBalance.value() > 0 else 10000
+            port = (
+                self._portfolio_balance
+                if self._portfolio_balance > 0
+                else (
+                    self.ui.lnWalletBalance.value()
+                    if self.ui.lnWalletBalance.value() > 0
+                    else 10000
+                )
             )
             if port > 0:
                 pct = int(inv / port * 100)
@@ -2203,10 +2240,14 @@ class MainWindow(QWidget):
 
     @Slot(int)
     def _on_slider_changed(self, pct):
-        port = self._portfolio_balance if self._portfolio_balance > 0 else (
-            self.ui.lnWalletBalance.value()
-            if self.ui.lnWalletBalance.value() > 0
-            else 10000
+        port = (
+            self._portfolio_balance
+            if self._portfolio_balance > 0
+            else (
+                self.ui.lnWalletBalance.value()
+                if self.ui.lnWalletBalance.value() > 0
+                else 10000
+            )
         )
         self.ui.dsbInvestmintAmount.blockSignals(True)
         self.ui.dsbInvestmintAmount.setValue(pct * port / 100.0)
@@ -2220,10 +2261,14 @@ class MainWindow(QWidget):
 
     @Slot(float)
     def _on_spinbox_changed(self, val):
-        port = self._portfolio_balance if self._portfolio_balance > 0 else (
-            self.ui.lnWalletBalance.value()
-            if self.ui.lnWalletBalance.value() > 0
-            else 10000
+        port = (
+            self._portfolio_balance
+            if self._portfolio_balance > 0
+            else (
+                self.ui.lnWalletBalance.value()
+                if self.ui.lnWalletBalance.value() > 0
+                else 10000
+            )
         )
         if port > 0:
             pct = int(val / port * 100)

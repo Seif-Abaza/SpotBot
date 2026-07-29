@@ -1,6 +1,6 @@
 """Resizable UI builder: sidebar + chart tabs + dockable PnL/console panel."""
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -167,24 +167,24 @@ class ResizableUI:
             "and find the one with the highest Equity Final & Equity Peak.\n"
             "Results are ranked and the best timeframe is suggested."
         )
-        self.btnBestTimeframe.setStyleSheet(
-            "QPushButton{background:#1a237e; color:#fff;"
-            " border:1px solid #2962ff; border-radius:4px;"
-            " font-weight:bold; font-size:11px;}"
-            "QPushButton:hover{background:#283593;}"
-            "QPushButton:disabled{background:#111; color:#555; border-color:#333;}"
-        )
+        # self.btnBestTimeframe.setStyleSheet(
+        #     "QPushButton{background:#1a237e; color:#fff;"
+        #     " border:1px solid #2962ff; border-radius:4px;"
+        #     " font-weight:bold; font-size:11px;}"
+        #     "QPushButton:hover{background:#283593;}"
+        #     "QPushButton:disabled{background:#111; color:#555; border-color:#333;}"
+        # )
         tl.addWidget(self.btnBestTimeframe)
 
         # ── Timeframe backtest progress label ──
-        self.lblTfBacktestStatus = QLabel("")
-        self.lblTfBacktestStatus.setObjectName("lblTfBacktestStatus")
-        self.lblTfBacktestStatus.setWordWrap(True)
-        self.lblTfBacktestStatus.setStyleSheet(
-            "color:#f0a500; font-size:10px; padding:2px 4px;"
-        )
-        self.lblTfBacktestStatus.setVisible(False)
-        tl.addWidget(self.lblTfBacktestStatus)
+        # self.lblTfBacktestStatus = QLabel("")
+        # self.lblTfBacktestStatus.setObjectName("lblTfBacktestStatus")
+        # self.lblTfBacktestStatus.setWordWrap(True)
+        # self.lblTfBacktestStatus.setStyleSheet(
+        #     "color:#f0a500; font-size:10px; padding:2px 4px;"
+        # )
+        # self.lblTfBacktestStatus.setVisible(False)
+        # tl.addWidget(self.lblTfBacktestStatus)
 
         side.addWidget(self.groupBox_timeframe)
 
