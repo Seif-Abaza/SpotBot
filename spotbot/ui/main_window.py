@@ -169,6 +169,8 @@ class MainWindow(QWidget):
         self._pair_chart_js_queue: dict[str, list[str]] = {}  # pair → queued JS
         # ── Per-pair backtest markers (historical FLI signals) ──
         self._pair_backtest_markers: dict[str, list] = {}  # pair → backtest markers
+        # ── Per-pair wallet buy-history markers (actual exchange trades) ──
+        self._pair_wallet_buy_markers: dict[str, list] = {}  # pair → wallet buy markers
         # ── Fix: track whether the REAL chart HTML (not about:blank) has
         #    been loaded for this pair.  The about:blank initial page also
         #    fires loadFinished, which would prematurely set
@@ -345,6 +347,7 @@ class MainWindow(QWidget):
             self._pair_markers[pair] = []
             self._pair_fli_df[pair] = None
             self._pair_backtest_markers[pair] = []
+            self._pair_wallet_buy_markers[pair] = []
         return {
             "ready": self._pair_chart_ready[pair],
             "first_load": self._pair_chart_first_load[pair],
@@ -876,6 +879,105 @@ class MainWindow(QWidget):
                 f"(qty={qty}, last_source={entry_source}) — position NOT seeded"
             )
 
+    def _fetch_and_mark_wallet_buys(self, pair: str):
+        """Fetch the user's actual buy trades from the exchange for the given
+        pair and push them as distinct markers on the chart + update the
+        wallet-buy info panel.
+
+        Each buy trade is rendered as a purple/magenta arrow on the chart
+        with the purchase date and price.  A summary panel at the bottom
+        of the chart shows total buys, total qty, and average price.
+
+        This uses the same FIFO lot-matching logic as _seed_position_from_wallet
+        but also preserves individual trade details for chart display.
+        """
+        try:
+            trades = self.exch_mgr.fetch_my_trades(pair)
+        except Exception as e:
+            print(f"[wallet_buys] fetch_my_trades failed for {pair}: {e}")
+            return
+        if not trades:
+            return
+
+        # Collect only buy trades, sorted chronologically
+        buy_trades = []
+        for t in sorted(trades, key=lambda x: x.get("timestamp") or x.get("datetime") or 0):
+            side = str(t.get("side") or "").lower()
+            if side != "buy":
+                continue
+            try:
+                ts = int(t.get("timestamp") or t.get("datetime") or 0)
+                price = float(t.get("price") or 0)
+                qty = float(t.get("amount") or t.get("qty") or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0 or qty <= 0:
+                continue
+            # Format the date for the panel display
+            try:
+                dt = datetime.fromtimestamp(
+                    ts / 1000 if ts > 1e10 else ts, tz=timezone.utc
+                )
+                date_str = dt.strftime("%m-%d %H:%M")
+            except Exception:
+                date_str = "?"
+            buy_trades.append({
+                "ts": ts,
+                "price": price,
+                "qty": qty,
+                "date": date_str,
+            })
+
+        if not buy_trades:
+            return
+
+        # Store for later re-push
+        self._pair_wallet_buy_markers[pair] = buy_trades
+
+        # Build chart markers — purple/magenta arrows, distinct from all others
+        chart_markers = []
+        for bt in buy_trades:
+            chart_time = _to_chart_time(bt["ts"])
+            if chart_time is None:
+                continue
+            chart_markers.append({
+                "time": chart_time,
+                "position": "belowBar",
+                "color": "#e040fb",  # Purple/magenta — distinct from BT BUY (blue) and live BUY (green)
+                "shape": "arrowUp",
+                "text": f"BUY {bt['date']} @ {bt['price']:.4f}",
+                "size": 2,
+            })
+
+        # Push markers to chart
+        self._chart_js(
+            pair,
+            f"setWalletBuyMarkers({json.dumps(chart_markers)});"
+        )
+
+        # Update wallet buy info panel
+        total_qty = sum(bt["qty"] for bt in buy_trades)
+        total_cost = sum(bt["price"] * bt["qty"] for bt in buy_trades)
+        avg_price = total_cost / total_qty if total_qty > 0 else 0
+
+        panel_buys = [
+            {"date": bt["date"], "price": bt["price"], "qty": bt["qty"]}
+            for bt in buy_trades
+        ]
+        self._chart_js(
+            pair,
+            f"updateWalletBuyPanel("
+            f"{json.dumps(panel_buys)},"
+            f"{total_qty},"
+            f"{avg_price}"
+            f");"
+        )
+
+        self._set_status(
+            f"{pair}: found {len(buy_trades)} buy trades in history, "
+            f"avg entry {avg_price:.6f}"
+        )
+
     def _on_chart_ready(self, pair: str, data: dict):
         tab = self._tabs.get(pair)
         if not tab:
@@ -905,6 +1007,8 @@ class MainWindow(QWidget):
             js = self._build_initial_chart_js(pair, data)
             if js:
                 tab.chart_js(js)
+            # ── Fetch & mark wallet purchase history on first chart load ──
+            self._fetch_and_mark_wallet_buys(pair)
         else:
             js = self._build_incremental_js(pair, data)
             if js:
@@ -1417,6 +1521,7 @@ class MainWindow(QWidget):
         self._pair_chart_html_loaded.pop(pair, None)
         self._pair_pending_ts.pop(pair, None)
         self._pair_backtest_markers.pop(pair, None)
+        self._pair_wallet_buy_markers.pop(pair, None)
         if session and session.pipeline:
             session.pipeline.stop()
             session.pipeline.wait(2000)
@@ -1868,6 +1973,7 @@ class MainWindow(QWidget):
         self._pair_chart_js_queue.clear()
         self._pair_chart_html_loaded.clear()
         self._pair_pending_ts.clear()
+        self._pair_wallet_buy_markers.clear()
 
         try:
             wallet_balance = self.exch_mgr.fetch_wallet_coin("USDT")

@@ -461,6 +461,27 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
         <div class="row"><span class="lbl">BB Lower:</span><span class="val" id="iBBL">--</span></div>
         <div class="signal none" id="iSignal">-- WAIT</div>
       </div>
+      <div id="walletBuyPanel" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:10;
+        font-family:'Consolas','SF Mono',monospace;
+        background:rgba(13,16,20,0.92);backdrop-filter:blur(6px);
+        padding:10px 12px;border-radius:8px;
+        border:1px solid #2b3139;min-width:220px;max-width:320px;
+        box-shadow:0 8px 24px rgba(0,0,0,0.45);">
+        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#e040fb;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Wallet Purchase History</div>
+        <div id="walletBuyList" style="max-height:120px;overflow-y:auto;font-size:10px;color:#eaecef;"></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:6px">
+          <span style="font-size:10px;color:#848e9c">Total Buys:</span>
+          <span style="font-size:11px;color:#e040fb;font-weight:700" id="wbTotalBuys">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px">
+          <span style="font-size:10px;color:#848e9c">Total Qty:</span>
+          <span style="font-size:11px;color:#eaecef;font-weight:700" id="wbTotalQty">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px">
+          <span style="font-size:10px;color:#848e9c">Avg Price:</span>
+          <span style="font-size:11px;color:#eaecef;font-weight:700" id="wbAvgPrice">--</span>
+        </div>
+      </div>
       <div id="btPanel" style="display:none;position:absolute;bottom:24px;right:14px;z-index:10;
         font-family:'Consolas','SF Mono',monospace;
         background:rgba(13,16,20,0.92);backdrop-filter:blur(6px);
@@ -536,7 +557,7 @@ const $tPos=document.getElementById('tPos'),$tEntry=document.getElementById('tEn
 const $tQty=document.getElementById('tQty'),$tUPnl=document.getElementById('tUPnl');
 const $tDPnl=document.getElementById('tDPnl'),$tTPnl=document.getElementById('tTPnl');
 
-let _lastCandle=null, _allMarkers=[], _btMarkers=[];
+let _lastCandle=null, _allMarkers=[], _btMarkers=[], _walletBuyMarkers=[];
 
 fliChart.subscribeCrosshairMove(p => {
   if(!p||!p.time){refreshLegend(_lastCandle);return;}
@@ -572,8 +593,12 @@ function setBacktestMarkers(btMarkers){
   _btMarkers=btMarkers.slice();
   _mergeMarkers();
 }
+function setWalletBuyMarkers(markers){
+  _walletBuyMarkers=markers.slice();
+  _mergeMarkers();
+}
 function _mergeMarkers(){
-  const combined=_allMarkers.slice().concat(_btMarkers.slice());
+  const combined=_allMarkers.slice().concat(_btMarkers.slice()).concat(_walletBuyMarkers.slice());
   combined.sort((a,b)=>a.time-b.time);
   fliCandles.setMarkers(combined);
 }
@@ -658,6 +683,23 @@ const $toast=document.getElementById('toast');
 const $toastMsg=document.getElementById('toastMsg');
 const $toastIcon=document.getElementById('toastIcon');
 let _toastTimer=null;
+function updateWalletBuyPanel(buys, totalQty, avgPrice){
+  document.getElementById('walletBuyPanel').style.display=buys.length>0?'block':'none';
+  document.getElementById('wbTotalBuys').textContent=buys.length;
+  document.getElementById('wbTotalQty').textContent=totalQty.toFixed(8);
+  document.getElementById('wbAvgPrice').textContent=avgPrice>0?avgPrice.toFixed(6):'--';
+  var html='';
+  for(var i=0;i<buys.length;i++){
+    var b=buys[i];
+    html+='<div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;padding:2px 0;border-bottom:1px solid rgba(43,49,57,0.3)">';
+    html+='<span style="color:#848e9c">'+b.date+'</span>';
+    html+='<span style="color:#e040fb;font-weight:600">@ '+b.price.toFixed(6)+'</span>';
+    html+='<span style="color:#eaecef">x'+b.qty.toFixed(8)+'</span>';
+    html+='</div>';
+  }
+  document.getElementById('walletBuyList').innerHTML=html;
+}
+
 function updateBacktestStats(trades,winRate,wins,losses,pnl){
   document.getElementById('btPanel').style.display=trades>0?'block':'none';
   document.getElementById('btTrades').textContent=trades;
