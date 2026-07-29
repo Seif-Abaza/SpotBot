@@ -376,89 +376,403 @@ def _pad(candles, data):
     return [None] * (len(candles) - len(data)) + data if data else [None] * len(candles)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# BACKUP (old strategy) — kept in indicators_backup.py for reference.
+# The functions below replace the old backtest_fli_signals with the new
+# CombinedMomFliHullStrategy from new_backtest.ipynb.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# --- Old backtest function preserved for reference ---
 def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:
-    """Run a simple backtest on FLI signals already computed in the DataFrame.
+    """[LEGACY] Old FLI-only backtest. Replaced by backtest_combined_strategy.
+    Kept for backward-compat. Delegates to the new strategy internally."""
+    return backtest_combined_strategy(df, investment)
 
-    Scans every row for ``buy_signal`` / ``sell_signal`` and simulates a
-    long-only strategy (buy → sell → buy → …) to produce:
 
-    * **markers**: list of ``{time, action, price}`` dicts ready for the
-      chart renderer.
-    * **stats**: ``total_trades``, ``wins``, ``losses``, ``win_rate``,
-      ``total_pnl_pct``, ``equity_final``, ``equity_peak`` — a quick
-      summary the UI can display.
+# ═══════════════════════════════════════════════════════════════════════════
+# NEW STRATEGY: compute_all_indicators + CombinedMomFliHullStrategy
+# Source: new_backtest.ipynb
+# Uses: talib, backtesting.py
+# ═══════════════════════════════════════════════════════════════════════════
 
-    ``time`` values are returned as **Unix seconds** (int) to match
-    ``_to_chart_time`` expectations.
+def _compute_hma(series, length):
+    """Hull Moving Average (HMA)."""
+    import talib
+    half_length = int(length / 2)
+    sqrt_length = int(np.round(np.sqrt(length)))
+    wma_half = talib.WMA(series, half_length)
+    wma_full = talib.WMA(series, length)
+    return talib.WMA(2 * wma_half - wma_full, sqrt_length)
+
+
+def _compute_ehma(series, length):
+    """EHMA — EMA-based Hull Moving Average."""
+    import talib
+    half_length = int(length / 2)
+    sqrt_length = int(np.round(np.sqrt(length)))
+    ema_half = talib.EMA(series, half_length)
+    ema_full = talib.EMA(series, length)
+    return talib.EMA(2 * ema_half - ema_full, sqrt_length)
+
+
+def _compute_thma(series, length):
+    """THMA — Triangular Hull Moving Average."""
+    import talib
+    third_length = int(length / 3)
+    half_length = int(length / 2)
+    wma_third = talib.WMA(series, third_length)
+    wma_half = talib.WMA(series, half_length)
+    wma_full = talib.WMA(series, length)
+    return talib.WMA(3 * wma_third - wma_half - wma_full, length)
+
+
+def new_compute_all_indicators(df, bb_period=20, bb_dev=2.0, atr_period=14,
+                                atr_mult=1.0, mom_period=10, hull_mode='Hma',
+                                hull_length=55, hull_mult=1.0):
+    """Compute all indicators needed by CombinedMomFliHullStrategy.
+
+    Adds to *df* (in-place copy): Bollinger Bands, ATR, MOM, FollowLine,
+    FollowTrend, HullMA, HullMA_Shifted.
+
+    Parameters
+    ----------
+    df : DataFrame with columns ``Open``, ``High``, ``Low``, ``Close``,
+         ``Volume`` (capitalised, matching backtesting.py convention).
+    bb_period, bb_dev : Bollinger Bands settings.
+    atr_period, atr_mult : ATR settings for FollowLine.
+    mom_period : Momentum look-back.
+    hull_mode : ``'Hma'``, ``'Ehma'``, or ``'Thma'``.
+    hull_length, hull_mult : Hull MA length and multiplier.
+
+    Returns
+    -------
+    DataFrame with extra columns.
+    """
+    import talib
+
+    df = df.copy()
+    close = df['Close'].to_numpy(dtype=float)
+    high = df['High'].to_numpy(dtype=float)
+    low = df['Low'].to_numpy(dtype=float)
+
+    # 1. Bollinger Bands + ATR
+    upper, mid, lower = talib.BBANDS(close, timeperiod=bb_period,
+                                     nbdevup=bb_dev, nbdevdn=bb_dev)
+    atr = talib.ATR(high, low, close, timeperiod=atr_period)
+
+    # 2. Momentum
+    df['MOM'] = talib.MOM(close, timeperiod=mom_period)
+
+    # 3. FollowLine (FLI)
+    fl = np.full_like(close, np.nan)
+    trend = np.zeros(len(close), dtype=int)
+    curr_trend = 0
+    curr_fl = np.nan
+
+    for i in range(len(close)):
+        if np.isnan(upper[i]) or np.isnan(atr[i]):
+            continue
+        if curr_trend == 0:
+            if close[i] > upper[i]:
+                curr_trend = 1
+            elif close[i] < lower[i]:
+                curr_trend = -1
+        if curr_trend == 1:
+            level = low[i] - (atr[i] * atr_mult)
+            curr_fl = max(curr_fl, level) if not np.isnan(curr_fl) else level
+            if close[i] < curr_fl:
+                curr_trend = 0
+                curr_fl = np.nan
+        elif curr_trend == -1:
+            level = high[i] + (atr[i] * atr_mult)
+            curr_fl = min(curr_fl, level) if not np.isnan(curr_fl) else level
+            if close[i] > curr_fl:
+                curr_trend = 0
+                curr_fl = np.nan
+        trend[i] = curr_trend
+        fl[i] = curr_fl
+
+    df['FollowLine'] = fl
+    df['FollowTrend'] = trend
+
+    # 4. Hull MA
+    adj_length = int(hull_length * hull_mult)
+    if hull_mode == 'Hma':
+        df['HullMA'] = _compute_hma(close, adj_length)
+    elif hull_mode == 'Ehma':
+        df['HullMA'] = _compute_ehma(close, adj_length)
+    elif hull_mode == 'Thma':
+        df['HullMA'] = _compute_thma(close, adj_length)
+    else:
+        df['HullMA'] = np.nan
+    df['HullMA_Shifted'] = df['HullMA'].shift(2)
+
+    return df
+
+
+class CombinedMomFliHullStrategy:
+    """Wrapper around the backtesting.py Strategy.
+
+    Defined as a callable class so we can instantiate the inner ``Strategy``
+    inside ``backtest_combined_strategy`` where the DataFrame is available.
+    """
+    pass
+
+
+def _make_combined_strategy_class():
+    """Factory that returns the actual backtesting.py Strategy subclass.
+
+    Defined inside a function to avoid a class-level import of
+    ``backtesting`` at module load time.
+    """
+    from backtesting import Strategy
+
+    class _CombinedMomFliHullStrategy(Strategy):
+        """Combined MOM + FLI + Hull MA strategy (from new_backtest.ipynb)."""
+
+        def init(self):
+            self.mom = self.I(lambda x: x, self.data.MOM, name='MOM')
+            self.fli_trend = self.I(lambda x: x, self.data.FollowTrend,
+                                    name='FollowTrend')
+            self.fli_line = self.I(lambda x: x, self.data.FollowLine,
+                                   name='FollowLine')
+            self.hull_ma = self.I(lambda x: x, self.data.HullMA, name='HullMA')
+            self.hull_ma_shifted = self.I(
+                lambda x: x, self.data.HullMA_Shifted, name='HullMA_Shifted')
+
+            # MOM thresholds
+            self.up_zone = 0.00639
+            self.middle_zone = 0.00001
+            self.down_zone = -0.006660
+
+        def next(self):
+            if len(self.fli_trend) < 3:
+                return
+
+            mom_now = self.mom[-1]
+            fli_trend_now = self.fli_trend[-1]
+            fli_trend_prev = self.fli_trend[-2]
+
+            hull_now = self.hull_ma[-1]
+            hull_shifted = self.hull_ma_shifted[-1]
+            hull_prev = self.hull_ma[-2]
+            hull_shifted_prev = self.hull_ma_shifted[-2]
+
+            hull_trend = 1 if hull_now > hull_shifted else -1
+            hull_trend_prev = 1 if hull_prev > hull_shifted_prev else -1
+
+            # MOM signals
+            mom_buy = mom_now > self.up_zone
+            mom_sell = mom_now < self.down_zone
+            mom_exit_long = mom_now < self.middle_zone
+            mom_exit_short = mom_now > self.middle_zone
+
+            # FLI signals
+            fli_buy = (fli_trend_now == 1 and fli_trend_prev != 1)
+            fli_sell = (fli_trend_now == -1 and fli_trend_prev != -1)
+            fli_exit_long = (fli_trend_now != 1 and fli_trend_prev == 1)
+            fli_exit_short = (fli_trend_now != -1 and fli_trend_prev == -1)
+
+            # Hull signals
+            hull_buy = (hull_trend == 1 and hull_trend_prev != 1)
+            hull_sell = (hull_trend == -1 and hull_trend_prev != -1)
+            hull_exit_long = (hull_trend == -1 and hull_trend_prev == 1)
+            hull_exit_short = (hull_trend == 1 and hull_trend_prev == -1)
+
+            # --- Entry: Long ---
+            if (mom_buy or (fli_buy and not mom_sell) or hull_buy) and hull_trend == 1:
+                if self.position.is_short:
+                    self.position.close()
+                if not self.position.is_long:
+                    self.buy()
+
+            # --- Entry: Short ---
+            elif (mom_sell or (fli_sell and not mom_buy) or hull_sell) and hull_trend == -1:
+                if self.position.is_long:
+                    self.position.close()
+                if not self.position.is_short:
+                    self.sell()
+
+            # --- Exit ---
+            else:
+                if self.position.is_long:
+                    if mom_exit_long or fli_exit_long or hull_exit_long:
+                        self.position.close()
+                elif self.position.is_short:
+                    if mom_exit_short or fli_exit_short or hull_exit_short:
+                        self.position.close()
+
+    return _CombinedMomFliHullStrategy
+
+
+def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Convert the SpotBot DataFrame (lowercase cols) to backtesting.py format.
+
+    SpotBot uses lowercase column names and a ``time`` column.
+    backtesting.py expects capitalised ``Open/High/Low/Close/Volume``
+    with a DatetimeIndex.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    bt = pd.DataFrame(index=df.index)
+    bt['Open'] = df['open'].values
+    bt['High'] = df['high'].values
+    bt['Low'] = df['low'].values
+    bt['Close'] = df['close'].values
+    bt['Volume'] = df['volume'].values
+
+    # Ensure DatetimeIndex (required by backtesting.py)
+    if not isinstance(bt.index, pd.DatetimeIndex):
+        # Try converting from 'time' column if available
+        if 'time' in df.columns:
+            try:
+                idx = pd.to_datetime(df['time'], unit='ms', utc=True)
+                bt.index = idx
+            except Exception:
+                try:
+                    idx = pd.to_datetime(df['time'], unit='s', utc=True)
+                    bt.index = idx
+                except Exception:
+                    pass
+        if not isinstance(bt.index, pd.DatetimeIndex):
+            bt.index = pd.to_datetime(df.index)
+
+    return bt
+
+
+def backtest_combined_strategy(df: "pd.DataFrame",
+                                investment: float = 10.0,
+                                commission: float = 0.0001,
+                                hull_mode: str = 'Hma',
+                                hull_length: int = 55,
+                                hull_mult: float = 1.0,
+                                mom_period: int = 10) -> dict:
+    """Run CombinedMomFliHullStrategy backtest via backtesting.py.
+
+    Accepts a SpotBot-style DataFrame (lowercase cols), converts it, computes
+    all indicators, runs the strategy, and returns markers + stats in the
+    same format the UI expects.
+
+    Returns
+    -------
+    dict with keys ``markers`` (list) and ``stats`` (dict).
     """
     markers = []
-    stats = {"total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
-             "total_pnl_pct": 0.0, "equity_final": 0.0, "equity_peak": 0.0}
+    stats = {
+        "total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+        "total_pnl_pct": 0.0, "equity_final": investment,
+        "equity_peak": investment,
+    }
 
-    if df is None or df.empty or "buy_signal" not in df.columns:
+    if df is None or df.empty or len(df) < 30:
         return {"markers": markers, "stats": stats}
 
-    in_position = False
-    entry_price = 0.0
-    entry_qty = 0.0
-    trade_pnl_list = []
-    equity = investment  # starting equity
-    equity_peak = equity
+    try:
+        from backtesting import Backtest
 
-    for i, row in df.iterrows():
-        ts_raw = row.get("time")
-        if ts_raw is None:
-            ts_raw = row.get("timestamp")
-        if ts_raw is None:
-            continue
+        # 1. Convert DataFrame format
+        bt_df = _prepare_bt_dataframe(df)
+        if bt_df.empty:
+            return {"markers": markers, "stats": stats}
 
-        # Convert timestamp to unix seconds int
-        try:
-            if isinstance(ts_raw, pd.Timestamp):
-                ts_sec = int(ts_raw.timestamp())
-            else:
-                v = float(ts_raw)
-                ts_sec = int(v / 1000.0) if v > 1e10 else int(v)
-        except (TypeError, ValueError):
-            continue
+        # 2. Compute indicators
+        bt_df = new_compute_all_indicators(
+            bt_df,
+            hull_mode=hull_mode,
+            hull_length=hull_length,
+            hull_mult=hull_mult,
+            mom_period=mom_period,
+        )
 
-        price = float(row.get("close", 0))
+        # Drop rows with NaN in required columns (warm-up period)
+        bt_df = bt_df.dropna(subset=['MOM', 'FollowTrend', 'HullMA']).copy()
+        if len(bt_df) < 30:
+            return {"markers": markers, "stats": stats}
 
-        if not in_position and row.get("buy_signal", False):
-            in_position = True
-            entry_price = price
-            entry_qty = equity / price if price > 0 else 0
-            markers.append({"time": ts_sec, "action": "bt_buy", "price": price})
+        # 3. Run backtest
+        StrategyClass = _make_combined_strategy_class()
+        bt = Backtest(
+            bt_df,
+            StrategyClass,
+            cash=investment,
+            commission=commission,
+            exclusive_orders=True,
+        )
+        bt_results = bt.run()
 
-        elif in_position and row.get("sell_signal", False):
-            in_position = False
-            sell_value = entry_qty * price
-            pnl_usdt = sell_value - (entry_qty * entry_price)
-            pnl_pct = ((price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
-            equity = sell_value
-            if equity > equity_peak:
-                equity_peak = equity
-            trade_pnl_list.append(pnl_pct)
-            markers.append({"time": ts_sec, "action": "bt_sell", "price": price})
+        # 4. Extract stats
+        stats["total_trades"] = int(bt_results.get("# Trades", 0))
+        stats["win_rate"] = float(bt_results.get("Win Rate [%]", 0.0))
+        stats["equity_final"] = float(bt_results.get("Equity Final [$]", investment))
+        stats["equity_peak"] = float(bt_results.get("Equity Peak [$]", investment))
+        stats["return_pct"] = float(bt_results.get("Return [%]", 0.0))
+        stats["max_drawdown_pct"] = float(bt_results.get("Max. Drawdown [%]", 0.0))
+        stats["profit_factor"] = float(bt_results.get("Profit Factor", 0.0))
+        stats["sharpe_ratio"] = float(bt_results.get("Sharpe Ratio", 0.0))
 
-    # If still in position at end, mark equity with last price
-    if in_position and len(df) > 0:
-        last_price = float(df.iloc[-1]["close"])
-        equity = entry_qty * last_price
-        if equity > equity_peak:
-            equity_peak = equity
+        # wins / losses from trades (backtesting.py returns a DataFrame)
+        trades = bt_results.get("_trades")
+        if trades is not None and len(trades) > 0:
+            wins = int((trades["PnL"] > 0).sum())
+            losses = int((trades["PnL"] <= 0).sum())
+            stats["wins"] = wins
+            stats["losses"] = losses
 
-    # Compute stats
-    stats["total_trades"] = len(trade_pnl_list)
-    stats["wins"] = sum(1 for p in trade_pnl_list if p > 0)
-    stats["losses"] = sum(1 for p in trade_pnl_list if p <= 0)
-    stats["win_rate"] = (
-        (stats["wins"] / stats["total_trades"] * 100.0)
-        if stats["total_trades"] > 0
-        else 0.0
-    )
-    stats["total_pnl_pct"] = sum(trade_pnl_list) if trade_pnl_list else 0.0
-    stats["equity_final"] = equity
-    stats["equity_peak"] = equity_peak
+        # 5. Build markers from trades
+        if trades is not None and len(trades) > 0:
+            for idx, row in trades.iterrows():
+                entry_bar = int(row.get("EntryBar", -1))
+                exit_bar = int(row.get("ExitBar", -1))
+                entry_time = None
+                exit_time = None
+                try:
+                    if entry_bar >= 0 and entry_bar < len(bt_df.index):
+                        entry_dt = bt_df.index[entry_bar]
+                        entry_time = int(entry_dt.timestamp())
+                    if exit_bar >= 0 and exit_bar < len(bt_df.index):
+                        exit_dt = bt_df.index[exit_bar]
+                        exit_time = int(exit_dt.timestamp())
+                except Exception:
+                    continue
+
+                size = float(row.get("Size", 0))
+                entry_price = float(row.get("EntryPrice", 0))
+                exit_price = float(row.get("ExitPrice", 0))
+
+                if size > 0:  # Long trade
+                    if entry_time:
+                        markers.append({
+                            "time": entry_time,
+                            "action": "bt_buy",
+                            "price": entry_price,
+                        })
+                    if exit_time:
+                        markers.append({
+                            "time": exit_time,
+                            "action": "bt_sell",
+                            "price": exit_price,
+                        })
+                elif size < 0:  # Short trade
+                    if entry_time:
+                        markers.append({
+                            "time": entry_time,
+                            "action": "bt_sell",
+                            "price": entry_price,
+                        })
+                    if exit_time:
+                        markers.append({
+                            "time": exit_time,
+                            "action": "bt_buy",
+                            "price": exit_price,
+                        })
+
+        # Sort markers by time
+        markers.sort(key=lambda m: m.get("time", 0))
+
+    except Exception as e:
+        print(f"[backtest_combined_strategy] Error: {e}")
+        import traceback
+        traceback.print_exc()
 
     return {"markers": markers, "stats": stats}

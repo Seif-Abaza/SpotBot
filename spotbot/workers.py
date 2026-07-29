@@ -319,9 +319,10 @@ class WalletBuyWorker(QThread):
 
 
 class BacktestWorker(QThread):
-    """QThread: run FLI backtest in background to prevent UI freeze.
+    """QThread: run CombinedMomFliHullStrategy backtest in background.
 
-    Computes backtest_fli_signals on a DataFrame and emits results.
+    Uses backtest_combined_strategy (via backtesting.py) on a DataFrame
+    and emits markers + stats.
     """
     backtest_ready = Signal(str, object, object, str)  # pair, markers, stats, duration_str
     backtest_error = Signal(str, str)  # pair, error_message
@@ -342,9 +343,9 @@ class BacktestWorker(QThread):
             if not self._running:
                 return
 
-            from spotbot.indicators import backtest_fli_signals
+            from spotbot.indicators import backtest_combined_strategy
 
-            result = backtest_fli_signals(self.df, self.investment)
+            result = backtest_combined_strategy(self.df, self.investment)
             if not self._running:
                 return
 
@@ -403,8 +404,7 @@ class BestTimeframeWorker(QThread):
             from spotbot.constants import CANDLE_LIMIT
             from spotbot.indicators import (
                 fli_ohlcv_to_df,
-                fli_compute_all_indicators,
-                backtest_fli_signals,
+                backtest_combined_strategy,
             )
 
             all_results = []
@@ -428,8 +428,8 @@ class BestTimeframeWorker(QThread):
 
                 try:
                     df = fli_ohlcv_to_df(candles)
-                    df = fli_compute_all_indicators(df, self.fli_params)
-                    result = backtest_fli_signals(df, self.investment)
+                    # New strategy computes its own indicators internally
+                    result = backtest_combined_strategy(df, self.investment)
                     stats = result.get("stats", {})
                     eq_final = stats.get("equity_final", 0)
                     eq_peak = stats.get("equity_peak", 0)
