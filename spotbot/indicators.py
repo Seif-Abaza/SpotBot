@@ -376,7 +376,7 @@ def _pad(candles, data):
     return [None] * (len(candles) - len(data)) + data if data else [None] * len(candles)
 
 
-def backtest_fli_signals(df: "pd.DataFrame") -> dict:
+def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:
     """Run a simple backtest on FLI signals already computed in the DataFrame.
 
     Scans every row for ``buy_signal`` / ``sell_signal`` and simulates a
@@ -385,21 +385,25 @@ def backtest_fli_signals(df: "pd.DataFrame") -> dict:
     * **markers**: list of ``{time, action, price}`` dicts ready for the
       chart renderer.
     * **stats**: ``total_trades``, ``wins``, ``losses``, ``win_rate``,
-      ``total_pnl_pct`` — a quick summary the UI can display.
+      ``total_pnl_pct``, ``equity_final``, ``equity_peak`` — a quick
+      summary the UI can display.
 
     ``time`` values are returned as **Unix seconds** (int) to match
     ``_to_chart_time`` expectations.
     """
     markers = []
     stats = {"total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
-             "total_pnl_pct": 0.0}
+             "total_pnl_pct": 0.0, "equity_final": 0.0, "equity_peak": 0.0}
 
     if df is None or df.empty or "buy_signal" not in df.columns:
         return {"markers": markers, "stats": stats}
 
     in_position = False
     entry_price = 0.0
+    entry_qty = 0.0
     trade_pnl_list = []
+    equity = investment  # starting equity
+    equity_peak = equity
 
     for i, row in df.iterrows():
         ts_raw = row.get("time")
@@ -423,13 +427,26 @@ def backtest_fli_signals(df: "pd.DataFrame") -> dict:
         if not in_position and row.get("buy_signal", False):
             in_position = True
             entry_price = price
+            entry_qty = equity / price if price > 0 else 0
             markers.append({"time": ts_sec, "action": "bt_buy", "price": price})
 
         elif in_position and row.get("sell_signal", False):
             in_position = False
+            sell_value = entry_qty * price
+            pnl_usdt = sell_value - (entry_qty * entry_price)
             pnl_pct = ((price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+            equity = sell_value
+            if equity > equity_peak:
+                equity_peak = equity
             trade_pnl_list.append(pnl_pct)
             markers.append({"time": ts_sec, "action": "bt_sell", "price": price})
+
+    # If still in position at end, mark equity with last price
+    if in_position and len(df) > 0:
+        last_price = float(df.iloc[-1]["close"])
+        equity = entry_qty * last_price
+        if equity > equity_peak:
+            equity_peak = equity
 
     # Compute stats
     stats["total_trades"] = len(trade_pnl_list)
@@ -441,5 +458,7 @@ def backtest_fli_signals(df: "pd.DataFrame") -> dict:
         else 0.0
     )
     stats["total_pnl_pct"] = sum(trade_pnl_list) if trade_pnl_list else 0.0
+    stats["equity_final"] = equity
+    stats["equity_peak"] = equity_peak
 
     return {"markers": markers, "stats": stats}

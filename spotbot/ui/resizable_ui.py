@@ -148,6 +148,44 @@ class ResizableUI:
         ):
             row_tf.addWidget(rb)
         tl.addLayout(row_tf)
+
+        # ── Backtest checkbox + Best Timeframe button ──
+        self.cbAutoBacktest = QCheckBox("Auto Backtest on Add")
+        self.cbAutoBacktest.setObjectName("cbAutoBacktest")
+        self.cbAutoBacktest.setChecked(True)
+        self.cbAutoBacktest.setToolTip(
+            "When checked: automatically run FLI backtest when a coin tab is opened.\n"
+            "When unchecked: no backtest runs and the Backtest panel is hidden."
+        )
+        tl.addWidget(self.cbAutoBacktest)
+
+        self.btnBestTimeframe = QPushButton("🔍 Best Timeframe")
+        self.btnBestTimeframe.setObjectName("btnBestTimeframe")
+        self.btnBestTimeframe.setMinimumHeight(34)
+        self.btnBestTimeframe.setToolTip(
+            "Test all timeframes (3m, 5m, 15m, 30m, 1h) for the active coin\n"
+            "and find the one with the highest Equity Final & Equity Peak.\n"
+            "Results are ranked and the best timeframe is suggested."
+        )
+        self.btnBestTimeframe.setStyleSheet(
+            "QPushButton{background:#1a237e; color:#fff;"
+            " border:1px solid #2962ff; border-radius:4px;"
+            " font-weight:bold; font-size:11px;}"
+            "QPushButton:hover{background:#283593;}"
+            "QPushButton:disabled{background:#111; color:#555; border-color:#333;}"
+        )
+        tl.addWidget(self.btnBestTimeframe)
+
+        # ── Timeframe backtest progress label ──
+        self.lblTfBacktestStatus = QLabel("")
+        self.lblTfBacktestStatus.setObjectName("lblTfBacktestStatus")
+        self.lblTfBacktestStatus.setWordWrap(True)
+        self.lblTfBacktestStatus.setStyleSheet(
+            "color:#f0a500; font-size:10px; padding:2px 4px;"
+        )
+        self.lblTfBacktestStatus.setVisible(False)
+        tl.addWidget(self.lblTfBacktestStatus)
+
         side.addWidget(self.groupBox_timeframe)
 
         # ── Investmint Group ──
@@ -257,8 +295,8 @@ class ResizableUI:
         self.tabWidget.setTabBarAutoHide(True)
         self.right_splitter.addWidget(self.tabWidget)
 
-        # ── Dockable bottom panel: PnL summary + Round-trip table + footer
-        #    status bar. Lives in a single QFrame so it can be shown/hidden
+        # ── Dockable bottom panel: PnL summary + TabWidget(rt_table | footerStatusBar) ──
+        #    Lives in a single QFrame so it can be shown/hidden
         #    as a unit via the clBtnToggleConsole checkable button. ──
         self.bottomPanel = QFrame()
         self.bottomPanel.setObjectName("bottomPanel")
@@ -303,10 +341,6 @@ class ResizableUI:
             pnl_layout.addWidget(lbl)
         pnl_layout.addStretch()
         # ── Issue 4: Reset button for the Daily P&L table ──
-        # Wipes the in-memory trade log AND the persisted PNL_LOG_FILE,
-        # then refreshes the table.  Used to start a fresh accounting
-        # session (e.g. after switching from DEMO to LIVE, or to clear
-        # stale test trades).
         self.btnResetPnL = QPushButton("🗑 Reset")
         self.btnResetPnL.setObjectName("btnResetPnL")
         self.btnResetPnL.setToolTip(
@@ -321,7 +355,19 @@ class ResizableUI:
         pnl_layout.addWidget(self.btnResetPnL)
         bp_layout.addWidget(self.pnl_box)
 
-        # ── Round-trip table (shared) ──
+        # ── TabWidget for rt_table and footerStatusBar (separate tabs) ──
+        self.bottomTabWidget = QTabWidget()
+        self.bottomTabWidget.setDocumentMode(True)
+        self.bottomTabWidget.setTabBarAutoHide(False)
+        self.bottomTabWidget.setStyleSheet(
+            "QTabWidget::pane{border:1px solid #333; border-radius:2px;}"
+            "QTabBar::tab{background:#1a1a2e; color:#aaa; padding:4px 12px;"
+            " border:1px solid #333; border-bottom:none; border-radius:3px 3px 0 0;"
+            " font-size:11px; font-weight:bold;}"
+            "QTabBar::tab:selected{background:#0b0e11; color:#f0a500; border-color:#f0a500;}"
+        )
+
+        # Tab 1: Round-trip table
         self.rt_table = QTableWidget(0, 6)
         self.rt_table.setHorizontalHeaderLabels(
             ["Pair", "Buy", "Sell", "Qty", "PnL USDT", "PnL %"]
@@ -340,9 +386,12 @@ class ResizableUI:
         self.rt_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
-        bp_layout.addWidget(self.rt_table)
+        self.bottomTabWidget.addTab(self.rt_table, "Round Trips")
 
-        # ── Footer status bar (replaces lblstatus for status messages) ──
+        # Tab 2: Footer status bar (log)
+        footer_log_widget = QWidget()
+        footer_log_layout = QVBoxLayout(footer_log_widget)
+        footer_log_layout.setContentsMargins(4, 4, 4, 4)
         self.footerStatusBar = QLabel("Ready")
         self.footerStatusBar.setObjectName("footerStatusBar")
         self.footerStatusBar.setWordWrap(True)
@@ -351,7 +400,11 @@ class ResizableUI:
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
         )
         self.footerStatusBar.setTextFormat(Qt.TextFormat.RichText)
-        bp_layout.addWidget(self.footerStatusBar)
+        self.footerStatusBar.setStyleSheet("color:#aaa; font-size:11px;")
+        footer_log_layout.addWidget(self.footerStatusBar)
+        self.bottomTabWidget.addTab(footer_log_widget, "Console Log")
+
+        bp_layout.addWidget(self.bottomTabWidget)
 
         self.right_splitter.addWidget(self.bottomPanel)
         # Default split: chart gets ~70%, bottom panel ~30%.

@@ -234,6 +234,242 @@ class ProcessWorker(QThread):
         self.wait(3000)
 
 
+class WalletBuyWorker(QThread):
+    """QThread: fetch wallet buy trades from exchange and compute markers.
+
+    Runs in the background so the UI never freezes during the potentially
+    slow fetch_my_trades() call.
+    """
+    wallet_buys_ready = Signal(str, list, float, float)  # pair, chart_markers, total_qty, avg_price
+    wallet_buys_error = Signal(str, str)  # pair, error_message
+
+    def __init__(self, exchange_mgr, pair, parent=None):
+        super().__init__(parent)
+        self.exch_mgr = exchange_mgr
+        self.pair = pair
+        self._running = True
+
+    def run(self):
+        from datetime import datetime, timezone
+        from spotbot.chart_renderer import _to_chart_time
+
+        try:
+            trades = self.exch_mgr.fetch_my_trades(self.pair)
+        except Exception as e:
+            self.wallet_buys_error.emit(self.pair, str(e))
+            return
+
+        if not trades:
+            return
+
+        buy_trades = []
+        for t in sorted(trades, key=lambda x: x.get("timestamp") or x.get("datetime") or 0):
+            side = str(t.get("side") or "").lower()
+            if side != "buy":
+                continue
+            try:
+                ts = int(t.get("timestamp") or t.get("datetime") or 0)
+                price = float(t.get("price") or 0)
+                qty = float(t.get("amount") or t.get("qty") or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0 or qty <= 0:
+                continue
+            try:
+                dt = datetime.fromtimestamp(
+                    ts / 1000 if ts > 1e10 else ts, tz=timezone.utc
+                )
+                date_str = dt.strftime("%m-%d %H:%M")
+            except Exception:
+                date_str = "?"
+            buy_trades.append({"ts": ts, "price": price, "qty": qty, "date": date_str})
+
+        if not buy_trades:
+            return
+
+        chart_markers = []
+        for bt in buy_trades:
+            chart_time = _to_chart_time(bt["ts"])
+            if chart_time is None:
+                continue
+            chart_markers.append({
+                "time": chart_time,
+                "position": "belowBar",
+                "color": "#e040fb",
+                "shape": "arrowUp",
+                "text": f"BUY {bt['date']} @ {bt['price']:.4f}",
+                "size": 2,
+            })
+
+        total_qty = sum(bt["qty"] for bt in buy_trades)
+        total_cost = sum(bt["price"] * bt["qty"] for bt in buy_trades)
+        avg_price = total_cost / total_qty if total_qty > 0 else 0
+
+        panel_buys = [
+            {"date": bt["date"], "price": bt["price"], "qty": bt["qty"]}
+            for bt in buy_trades
+        ]
+
+        self.wallet_buys_ready.emit(self.pair, chart_markers, total_qty, avg_price)
+
+    def stop(self):
+        self._running = False
+        self.quit()
+        self.wait(3000)
+
+
+class BacktestWorker(QThread):
+    """QThread: run FLI backtest in background to prevent UI freeze.
+
+    Computes backtest_fli_signals on a DataFrame and emits results.
+    """
+    backtest_ready = Signal(str, object, object, str)  # pair, markers, stats, duration_str
+    backtest_error = Signal(str, str)  # pair, error_message
+
+    def __init__(self, pair, df, fli_params, investment=10.0, parent=None):
+        super().__init__(parent)
+        self.pair = pair
+        self.df = df
+        self.fli_params = fli_params
+        self.investment = investment
+        self._running = True
+
+    def run(self):
+        import time as _time
+
+        t0 = _time.time()
+        try:
+            if not self._running:
+                return
+
+            from spotbot.indicators import backtest_fli_signals
+
+            result = backtest_fli_signals(self.df, self.investment)
+            if not self._running:
+                return
+
+            elapsed = _time.time() - t0
+            if elapsed < 1:
+                duration_str = f"{elapsed*1000:.0f}ms"
+            elif elapsed < 60:
+                duration_str = f"{elapsed:.1f}s"
+            else:
+                m, s = divmod(elapsed, 60)
+                duration_str = f"{int(m)}m {int(s)}s"
+
+            self.backtest_ready.emit(
+                self.pair,
+                result.get("markers", []),
+                result.get("stats", {}),
+                duration_str,
+            )
+        except Exception as e:
+            if self._running:
+                self.backtest_error.emit(self.pair, str(e))
+
+    def stop(self):
+        self._running = False
+        self.quit()
+        self.wait(3000)
+
+
+class BestTimeframeWorker(QThread):
+    """QThread: test all timeframes and find the one with best Equity Final/Peak.
+
+    For each timeframe:
+      1. Fetch OHLCV candles
+      2. Compute FLI indicators
+      3. Run backtest
+      4. Record equity_final, equity_peak, win_rate
+
+    Emits progress for each timeframe tested and the final best result.
+    """
+    tf_progress = Signal(str, str, float, float)  # pair, tf, equity_final, equity_peak
+    tf_complete = Signal(str, str, float, float, object)  # pair, best_tf, best_eq_final, best_eq_peak, all_results
+    tf_error = Signal(str, str)  # pair, error_message
+
+    TIMEFRAMES = ["3m", "5m", "15m", "30m", "1h"]
+
+    def __init__(self, exchange_mgr, pair, fli_params, investment=10.0, parent=None):
+        super().__init__(parent)
+        self.exch_mgr = exchange_mgr
+        self.pair = pair
+        self.fli_params = fli_params
+        self.investment = investment
+        self._running = True
+
+    def run(self):
+        try:
+            from spotbot.constants import CANDLE_LIMIT
+            from spotbot.indicators import (
+                fli_ohlcv_to_df,
+                fli_compute_all_indicators,
+                backtest_fli_signals,
+            )
+
+            all_results = []
+            best_tf = ""
+            best_eq_final = -1.0
+            best_eq_peak = -1.0
+
+            for tf in self.TIMEFRAMES:
+                if not self._running:
+                    break
+
+                try:
+                    candles = self.exch_mgr.fetch_ohlcv(self.pair, tf, CANDLE_LIMIT)
+                except Exception as e:
+                    self.tf_error.emit(self.pair, f"Fetch {tf}: {e}")
+                    continue
+
+                if not candles or len(candles) < 30:
+                    self.tf_error.emit(self.pair, f"Skip {tf}: < 30 candles")
+                    continue
+
+                try:
+                    df = fli_ohlcv_to_df(candles)
+                    df = fli_compute_all_indicators(df, self.fli_params)
+                    result = backtest_fli_signals(df, self.investment)
+                    stats = result.get("stats", {})
+                    eq_final = stats.get("equity_final", 0)
+                    eq_peak = stats.get("equity_peak", 0)
+                    all_results.append({
+                        "timeframe": tf,
+                        "equity_final": eq_final,
+                        "equity_peak": eq_peak,
+                        "win_rate": stats.get("win_rate", 0),
+                        "total_trades": stats.get("total_trades", 0),
+                        "total_pnl_pct": stats.get("total_pnl_pct", 0),
+                    })
+
+                    self.tf_progress.emit(self.pair, tf, eq_final, eq_peak)
+
+                    # Score: prioritize equity_final, then equity_peak
+                    score = eq_final * 1.0 + eq_peak * 0.5
+                    if eq_final > best_eq_final or (
+                        eq_final == best_eq_final and eq_peak > best_eq_peak
+                    ):
+                        best_eq_final = eq_final
+                        best_eq_peak = eq_peak
+                        best_tf = tf
+
+                except Exception as e:
+                    self.tf_error.emit(self.pair, f"Backtest {tf}: {e}")
+                    continue
+
+            self.tf_complete.emit(
+                self.pair, best_tf, best_eq_final, best_eq_peak, all_results
+            )
+
+        except Exception as e:
+            self.tf_error.emit(self.pair, str(e))
+
+    def stop(self):
+        self._running = False
+        self.quit()
+        self.wait(5000)
+
+
 class ParallelPipeline(QThread):
     pipeline_done = Signal(dict)
     pipeline_error = Signal(str)

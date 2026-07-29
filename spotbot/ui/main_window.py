@@ -53,6 +53,7 @@ from spotbot.constants import (
     CCXT_AVAILABLE,
     CHART_CDN_URL,
     CONFIG_DIR,
+    TIMEFRAMES,
     FLI_ADX_LEN,
     FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
@@ -99,6 +100,9 @@ from spotbot.workers import (
     ParallelPipeline,
     ProcessWorker,
     WebSocketWorker,
+    WalletBuyWorker,
+    BacktestWorker,
+    BestTimeframeWorker,
 )
 
 try:
@@ -171,6 +175,13 @@ class MainWindow(QWidget):
         self._pair_backtest_markers: dict[str, list] = {}  # pair → backtest markers
         # ── Per-pair wallet buy-history markers (actual exchange trades) ──
         self._pair_wallet_buy_markers: dict[str, list] = {}  # pair → wallet buy markers
+        # ── Per-pair backtest workers (so we can stop them on tab close) ──
+        self._backtest_workers: dict[str, BacktestWorker] = {}
+        self._wallet_buy_workers: dict[str, WalletBuyWorker] = {}
+        # ── Best timeframe worker (single, for active pair) ──
+        self._best_tf_worker: BestTimeframeWorker | None = None
+        # ── Track which pairs have backtest enabled ──
+        self._pair_backtest_enabled: dict[str, bool] = {}
         # ── Fix: track whether the REAL chart HTML (not about:blank) has
         #    been loaded for this pair.  The about:blank initial page also
         #    fires loadFinished, which would prematurely set
@@ -256,6 +267,9 @@ class MainWindow(QWidget):
         self.ui.clBtnAPIKey.clicked.connect(self._on_setup_api_keys)
         # ── Issue 4: Reset PnL records button ──
         self.ui.btnResetPnL.clicked.connect(self._on_reset_pnl)
+        # ── Backtest checkbox + Best Timeframe button ──
+        self.ui.cbAutoBacktest.toggled.connect(self._on_auto_backtest_toggled)
+        self.ui.btnBestTimeframe.clicked.connect(self._on_best_timeframe_clicked)
 
     # ── Helpers ──
 
@@ -435,8 +449,8 @@ class MainWindow(QWidget):
         self._pair_fli_df[pair] = df
         self._set_fli_candles(pair, df)
         self._set_fli_lines(pair, df)
-        # ── Backtest: run FLI signal backtest on historical data ──
-        self._run_backtest(pair, df)
+        # ── Backtest: run FLI signal backtest on historical data (in QThread) ──
+        self._run_backtest_async(pair, df)
         # ── Set trade markers (backtest markers are pushed by _run_backtest) ──
         self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []))
         self._update_fli_info_panel(pair, df.iloc[-1])
@@ -452,7 +466,9 @@ class MainWindow(QWidget):
     def _run_backtest(self, pair: str, df):
         """Run a backtest on the FLI DataFrame and store markers + update stats panel."""
         try:
-            result = backtest_fli_signals(df)
+            session = self._sessions.get(pair)
+            investment = session.investment_amount if session else 10.0
+            result = backtest_fli_signals(df, investment)
             markers = result.get("markers", [])
             stats = result.get("stats", {})
             self._pair_backtest_markers[pair] = markers
@@ -490,17 +506,300 @@ class MainWindow(QWidget):
                 f"{stats.get('win_rate', 0):.1f},"
                 f"{stats.get('wins', 0)},"
                 f"{stats.get('losses', 0)},"
-                f"{stats.get('total_pnl_pct', 0):.2f}"
+                f"{stats.get('total_pnl_pct', 0):.2f},"
+                f"{stats.get('equity_final', 0):.2f},"
+                f"{stats.get('equity_peak', 0):.2f},"
+                f"''"
                 f");"
             )
             if markers:
                 self._set_status(
                     f"[Backtest] {pair}: {stats.get('total_trades', 0)} trades, "
                     f"win rate {stats.get('win_rate', 0):.1f}%, "
-                    f"net P&L {stats.get('total_pnl_pct', 0):+.2f}%"
+                    f"net P&L {stats.get('total_pnl_pct', 0):+.2f}%, "
+                    f"Equity Final ${stats.get('equity_final', 0):.2f}"
                 )
         except Exception as e:
             print(f"[BACKTEST] Error for {pair}: {e}")
+
+    def _run_backtest_async(self, pair: str, df):
+        """Run backtest in a QThread to prevent UI freezing.
+
+        Respects the auto-backtest checkbox: if unchecked, skip backtest
+        entirely and hide the backtest panel on the chart.
+        """
+        if not self.ui.cbAutoBacktest.isChecked():
+            self._pair_backtest_enabled[pair] = False
+            # Hide backtest panel on chart
+            self._chart_js(pair, "updateBacktestStats(0,0,0,0,0,0,0,'');")
+            return
+
+        self._pair_backtest_enabled[pair] = True
+
+        # Stop any existing backtest worker for this pair
+        old = self._backtest_workers.get(pair)
+        if old and old.isRunning():
+            old.stop()
+
+        session = self._sessions.get(pair)
+        investment = session.investment_amount if session else 10.0
+        worker = BacktestWorker(pair, df, self._fli_params, investment, parent=self)
+        self._backtest_workers[pair] = worker
+        worker.backtest_ready.connect(self._on_backtest_ready)
+        worker.backtest_error.connect(
+            lambda m, p=pair: self._set_status(f"⚠️ Backtest {p}: {m}")
+        )
+        worker.start()
+
+    @Slot(str, object, object, str)
+    def _on_backtest_ready(self, pair: str, markers, stats, duration_str):
+        """Handle backtest results from BacktestWorker (runs on main thread)."""
+        self._pair_backtest_markers[pair] = markers
+
+        # Build chart markers
+        chart_markers = []
+        for m in markers:
+            action = m.get("action")
+            if action == "bt_buy":
+                chart_markers.append({
+                    "time": m["time"],
+                    "position": "belowBar",
+                    "color": "#2962ff",
+                    "shape": "arrowUp",
+                    "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                    "size": 1,
+                })
+            elif action == "bt_sell":
+                chart_markers.append({
+                    "time": m["time"],
+                    "position": "aboveBar",
+                    "color": "#ff6d00",
+                    "shape": "arrowDown",
+                    "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                    "size": 1,
+                })
+        self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
+
+        # Update backtest stats panel (with equity and duration)
+        eq_final = stats.get("equity_final", 0) if stats else 0
+        eq_peak = stats.get("equity_peak", 0) if stats else 0
+        total_trades = stats.get("total_trades", 0) if stats else 0
+        win_rate = stats.get("win_rate", 0) if stats else 0
+        wins = stats.get("wins", 0) if stats else 0
+        losses = stats.get("losses", 0) if stats else 0
+        total_pnl = stats.get("total_pnl_pct", 0) if stats else 0
+
+        self._chart_js(
+            pair,
+            f"updateBacktestStats("
+            f"{total_trades},{win_rate:.1f},{wins},{losses},{total_pnl:.2f},"
+            f"{eq_final:.2f},{eq_peak:.2f},"
+            f"{json.dumps(duration_str)});"
+        )
+
+        if total_trades > 0:
+            self._set_status(
+                f"[Backtest] {pair}: {total_trades} trades ({duration_str}), "
+                f"win rate {win_rate:.1f}%, "
+                f"Equity Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
+            )
+
+    def _fetch_and_mark_wallet_buys_async(self, pair: str):
+        """Fetch wallet buy trades in a QThread to prevent UI freezing."""
+        # Stop any existing worker for this pair
+        old = self._wallet_buy_workers.get(pair)
+        if old and old.isRunning():
+            old.stop()
+
+        worker = WalletBuyWorker(self.exch_mgr, pair, parent=self)
+        self._wallet_buy_workers[pair] = worker
+        worker.wallet_buys_ready.connect(self._on_wallet_buys_ready)
+        worker.wallet_buys_error.connect(
+            lambda p, m: print(f"[wallet_buys] fetch failed for {p}: {m}")
+        )
+        worker.start()
+
+    @Slot(str, list, float, float)
+    def _on_wallet_buys_ready(self, pair: str, chart_markers, total_qty, avg_price):
+        """Handle wallet buy results from WalletBuyWorker."""
+        if not chart_markers:
+            return
+
+        # Store for later re-push
+        buy_trades_data = []
+        for cm in chart_markers:
+            # Extract buy trade data from marker text
+            text = cm.get("text", "")
+            buy_trades_data.append({
+                "date": text.split(" @ ")[0].replace("BUY ", "") if " @ " in text else "?",
+                "price": float(cm.get("text", "").split("@ ")[1].strip()) if "@" in cm.get("text", "") else 0,
+                "qty": 0,
+            })
+
+        self._pair_wallet_buy_markers[pair] = buy_trades_data
+
+        self._chart_js(pair, f"setWalletBuyMarkers({json.dumps(chart_markers)});")
+
+        # Build panel buys data from the chart markers
+        panel_buys = []
+        for cm in chart_markers:
+            text = cm.get("text", "")
+            parts = text.split(" @ ")
+            date_part = parts[0].replace("BUY ", "") if len(parts) > 0 else "?"
+            price_part = float(parts[1].strip()) if len(parts) > 1 else 0
+            panel_buys.append({"date": date_part, "price": price_part, "qty": 0})
+
+        self._chart_js(
+            pair,
+            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});"
+        )
+        self._set_status(
+            f"{pair}: found {len(chart_markers)} buy trades, avg entry {avg_price:.6f}"
+        )
+
+    def _on_auto_backtest_toggled(self, checked: bool):
+        """Handle auto-backtest checkbox toggle."""
+        self._set_status(
+            f"Auto Backtest {'enabled' if checked else 'disabled'}"
+        )
+        # If disabled, clear backtest panels for all pairs
+        if not checked:
+            for pair in list(self._pair_backtest_markers.keys()):
+                self._chart_js(pair, "updateBacktestStats(0,0,0,0,0,0,0,'');")
+
+    def _on_best_timeframe_clicked(self):
+        """Start the best-timeframe optimization for the active pair."""
+        pair = self._active_pair()
+        if not pair:
+            self._set_status("⚠️ No active tab — open a coin tab first")
+            return
+
+        if not self._is_connected:
+            self._set_status("⚠️ Connect to an exchange first")
+            return
+
+        # Stop any existing best-tf worker
+        if self._best_tf_worker and self._best_tf_worker.isRunning():
+            self._best_tf_worker.stop()
+            self._best_tf_worker = None
+
+        session = self._sessions.get(pair)
+        investment = session.investment_amount if session else 10.0
+
+        self.ui.btnBestTimeframe.setEnabled(False)
+        self.ui.btnBestTimeframe.setText("⏳ Testing...")
+        self.ui.lblTfBacktestStatus.setVisible(True)
+        self.ui.lblTfBacktestStatus.setText(f"Testing timeframes for {pair}…")
+
+        worker = BestTimeframeWorker(
+            self.exch_mgr, pair, self._fli_params, investment, parent=self
+        )
+        self._best_tf_worker = worker
+        worker.tf_progress.connect(self._on_best_tf_progress)
+        worker.tf_complete.connect(self._on_best_tf_complete)
+        worker.tf_error.connect(self._on_best_tf_error)
+        worker.start()
+
+    @Slot(str, str, float, float)
+    def _on_best_tf_progress(self, pair, tf, eq_final, eq_peak):
+        """Update progress as each timeframe is tested."""
+        self.ui.lblTfBacktestStatus.setText(
+            f"Testing {pair}: {tf} → Eq.Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
+        )
+        self._set_status(
+            f"[BestTF] {pair} @ {tf}: Eq.Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
+        )
+
+    @Slot(str, str, float, float, object)
+    def _on_best_tf_complete(self, pair, best_tf, best_eq_final, best_eq_peak, all_results):
+        """Handle best-timeframe results and show recommendation."""
+        self.ui.btnBestTimeframe.setEnabled(True)
+        self.ui.btnBestTimeframe.setText("🔍 Best Timeframe")
+
+        if not best_tf:
+            self.ui.lblTfBacktestStatus.setText(f"No suitable timeframe found for {pair}")
+            self._set_status(f"⚠️ [BestTF] No suitable timeframe found for {pair}")
+            return
+
+        # Build summary table
+        summary_lines = [f"━━ {pair} Timeframe Comparison ━━"]
+        for r in sorted(all_results, key=lambda x: x.get("equity_final", 0), reverse=True):
+            tf = r["timeframe"]
+            eq_f = r["equity_final"]
+            eq_p = r["equity_peak"]
+            wr = r["win_rate"]
+            trades = r["total_trades"]
+            marker = " ◀ BEST" if tf == best_tf else ""
+            summary_lines.append(
+                f"  {tf:4s}: Eq.Final ${eq_f:8.2f} | Peak ${eq_p:8.2f} | "
+                f"WR {wr:5.1f}% | {trades} trades{marker}"
+            )
+
+        summary_text = "\n".join(summary_lines)
+        self.ui.lblTfBacktestStatus.setText(summary_text)
+        self.ui.lblTfBacktestStatus.setVisible(True)
+
+        # Show recommendation dialog
+        recommendation = (
+            f"<b>Best Timeframe for {pair}</b><br><br>"
+            f"<table cellpadding='4' style='font-size:11px; font-family:Consolas,monospace;'>"
+            f"<tr style='color:#aaa'><td><b>Timeframe</b></td><td><b>Eq.Final</b></td>"
+            f"<td><b>Eq.Peak</b></td><td><b>Win Rate</b></td><td><b>Trades</b></td></tr>"
+        )
+        for r in sorted(all_results, key=lambda x: x.get("equity_final", 0), reverse=True):
+            tf = r["timeframe"]
+            eq_f = r["equity_final"]
+            eq_p = r["equity_peak"]
+            wr = r["win_rate"]
+            trades = r["total_trades"]
+            is_best = tf == best_tf
+            row_color = "#00e676" if is_best else "#ddd"
+            bold = "font-weight:bold;" if is_best else ""
+            recommendation += (
+                f"<tr style='color:{row_color}; {bold}'>"
+                f"<td>{tf} {'◀' if is_best else ''}</td>"
+                f"<td>${eq_f:.2f}</td><td>${eq_p:.2f}</td>"
+                f"<td>{wr:.1f}%</td><td>{trades}</td></tr>"
+            )
+        recommendation += "</table>"
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle(f"Best Timeframe — {pair}")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(
+            f"<b>Recommended timeframe: {best_tf}</b><br>"
+            f"Equity Final: <span style='color:#00e676'>${best_eq_final:.2f}</span><br>"
+            f"Equity Peak: <span style='color:#00e676'>${best_eq_peak:.2f}</span>"
+        )
+        msg.setInformativeText(recommendation)
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Apply | QMessageBox.StandardButton.Close
+        )
+        msg.button(QMessageBox.StandardButton.Apply).setText(f"Apply {best_tf}")
+        msg.setDefaultButton(QMessageBox.StandardButton.Apply)
+
+        if msg.exec() == QMessageBox.StandardButton.Apply:
+            # Apply the best timeframe to the active pair
+            rb_map = {
+                "3m": self.ui.rb_timefram_3m,
+                "5m": self.ui.rb_timefram_5m,
+                "15m": self.ui.rb_timefram_15m,
+                "30m": self.ui.rb_timefram_30m,
+                "1h": self.ui.rb_timefram_1h,
+            }
+            target_rb = rb_map.get(best_tf)
+            if target_rb:
+                target_rb.setChecked(True)
+            self._set_status(f"✅ Applied best timeframe {best_tf} for {pair}")
+
+    @Slot(str, str)
+    def _on_best_tf_error(self, pair, msg):
+        self.ui.btnBestTimeframe.setEnabled(True)
+        self.ui.btnBestTimeframe.setText("🔍 Best Timeframe")
+        self._set_status(f"⚠️ [BestTF] {pair}: {msg}")
+        self.ui.lblTfBacktestStatus.setText(f"Error: {msg}")
+        self.ui.lblTfBacktestStatus.setVisible(True)
 
     @staticmethod
     def _fli_ts(row_time):
@@ -1021,8 +1320,8 @@ class MainWindow(QWidget):
             js = self._build_initial_chart_js(pair, data)
             if js:
                 tab.chart_js(js)
-            # ── Fetch & mark wallet purchase history on first chart load ──
-            self._fetch_and_mark_wallet_buys(pair)
+            # ── Fetch & mark wallet purchase history on first chart load (in QThread) ──
+            self._fetch_and_mark_wallet_buys_async(pair)
         else:
             js = self._build_incremental_js(pair, data)
             if js:
@@ -1526,6 +1825,14 @@ class MainWindow(QWidget):
         if worker and worker.isRunning():
             worker.quit()
             worker.wait(2000)
+        # ── Clean up per-pair backtest worker ──
+        bt_worker = self._backtest_workers.pop(pair, None)
+        if bt_worker and bt_worker.isRunning():
+            bt_worker.stop()
+        # ── Clean up per-pair wallet buy worker ──
+        wb_worker = self._wallet_buy_workers.pop(pair, None)
+        if wb_worker and wb_worker.isRunning():
+            wb_worker.stop()
         self._pair_candles.pop(pair, None)
         self._pair_markers.pop(pair, None)
         self._pair_fli_df.pop(pair, None)
@@ -1536,6 +1843,7 @@ class MainWindow(QWidget):
         self._pair_pending_ts.pop(pair, None)
         self._pair_backtest_markers.pop(pair, None)
         self._pair_wallet_buy_markers.pop(pair, None)
+        self._pair_backtest_enabled.pop(pair, None)
         if session and session.pipeline:
             session.pipeline.stop()
             session.pipeline.wait(2000)
@@ -1752,6 +2060,9 @@ class MainWindow(QWidget):
         (not all sessions).  When the user later switches tabs, the radio
         buttons will be re-synced to the active tab's timeframe via
         ``_on_tab_changed``.
+
+        Also triggers a backtest for the active pair on the new timeframe,
+        disables timeframe selection during backtesting, and shows duration.
         """
         tf = self._tf()
         self._set_status(f"Timeframe → {tf}")
@@ -2019,6 +2330,10 @@ class MainWindow(QWidget):
         self.ui.btnStartTrading.setChecked(False)
         self.ui.btnStartTrading.setText("Start Trading")
         self.ui.btnStartTrading.setEnabled(False)
+        # Stop best-timeframe worker if running
+        if self._best_tf_worker and self._best_tf_worker.isRunning():
+            self._best_tf_worker.stop()
+            self._best_tf_worker = None
         for pair in list(self._sessions):
             self._halt_and_remove(pair)
         self.exch_mgr.disconnect()
