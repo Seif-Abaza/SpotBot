@@ -3,6 +3,7 @@
 The QSS is embedded as a string constant rather than loaded from style.qss
 on disk — edit STYLE_QSS here to change the theme.
 """
+
 STYLE_QSS = """
 /* ─── Targov v3.0 — Professional Dark Theme ─── */
 
@@ -66,7 +67,7 @@ QLabel#lblstatus { background-color: #0b0e11; border: 1px solid #2b3139;
     border-radius: 6px; padding: 8px; color: #0ecb81;
     font-size: 11px; font-weight: 600; font-family: "Consolas","SF Mono",monospace; }
 
-QLabel#footerStatusBar { background-color: #0b0e11; border-top: 2px solid #f0a500;
+QTextEdit#footerStatusBar { background-color: #0b0e11; border-top: 2px solid #f0a500;
     border-radius: 0px; padding: 6px 10px; color: #eaecef;
     font-size: 11px; font-family: "Consolas","SF Mono",monospace; }
 

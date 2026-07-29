@@ -302,7 +302,7 @@ class MainWindow(QWidget):
         self._footer_messages.append(line)
         # Render the last ~12 messages, newest at top
         recent = list(self._footer_messages)[-12:][::-1]
-        self.ui.footerStatusBar.setText("<br>".join(recent))
+        self.ui.footerStatusBar.setHtml("<br>".join(recent))
         # Also mirror a one-line summary to the sidebar lblstatus (kept as a
         # quick-glance indicator; the full history lives in the footer).
         self.ui.lblstatus.setText(f"[{ts}] {msg}")

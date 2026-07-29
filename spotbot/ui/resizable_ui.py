@@ -1,23 +1,17 @@
 """Resizable UI builder: sidebar + chart tabs + dockable PnL/console panel."""
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QCommandLinkButton,
-    QDialog,
     QDoubleSpinBox,
-    QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLCDNumber,
-    QLineEdit,
-    QMessageBox,
     QProgressBar,
     QPushButton,
     QRadioButton,
@@ -26,8 +20,8 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QSplitter,
     QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -392,14 +386,15 @@ class ResizableUI:
         footer_log_widget = QWidget()
         footer_log_layout = QVBoxLayout(footer_log_widget)
         footer_log_layout.setContentsMargins(4, 4, 4, 4)
-        self.footerStatusBar = QLabel("Ready")
+        self.footerStatusBar = QTextEdit("Ready")
         self.footerStatusBar.setObjectName("footerStatusBar")
-        self.footerStatusBar.setWordWrap(True)
         self.footerStatusBar.setMinimumHeight(40)
-        self.footerStatusBar.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        self.footerStatusBar.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self.footerStatusBar.setTextFormat(Qt.TextFormat.RichText)
+        self.footerStatusBar.setReadOnly(True)
+        self.footerStatusBar.setAcceptRichText(True)
+
         self.footerStatusBar.setStyleSheet("color:#aaa; font-size:11px;")
         footer_log_layout.addWidget(self.footerStatusBar)
         self.bottomTabWidget.addTab(footer_log_widget, "Console Log")
