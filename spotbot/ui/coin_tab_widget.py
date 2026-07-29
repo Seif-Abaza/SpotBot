@@ -1,6 +1,6 @@
 """Closable tab widget that hosts CoinSession instances."""
 
-from PySide6.QtCore import Signal, Slot, QUrl, Qt
+from PySide6.QtCore import Signal, Slot, QUrl, Qt, QTimer
 from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
@@ -73,12 +73,39 @@ class CoinTabWidget(QWidget):
 
     @Slot(bool)
     def _on_chart_loaded(self, ok):
-        self._chart_ready = bool(ok)
         if not ok:
             return
-        pending, self._chart_js_queue = self._chart_js_queue, []
-        for code in pending:
-            self.chart_view.page().runJavaScript(code)
+        # Verify the page is truly ready (all JS functions defined) before
+        # flushing the queue. QWebEngineView's loadFinished can fire before
+        # the inline <script> block has executed — this prevents ReferenceErrors.
+        def _check(result):
+            if result:
+                self._chart_ready = True
+                pending, self._chart_js_queue = self._chart_js_queue, []
+                for code in pending:
+                    self.chart_view.page().runJavaScript(code)
+            else:
+                # Page not ready yet — retry after 50 ms
+                QTimer.singleShot(50, self._verify_and_flush)
+
+        self.chart_view.page().runJavaScript(
+            "typeof _pageReady !== 'undefined' && _pageReady", _check
+        )
+
+    def _verify_and_flush(self):
+        """Re-check page readiness and flush JS queue when ready."""
+        def _check(result):
+            if result:
+                self._chart_ready = True
+                pending, self._chart_js_queue = self._chart_js_queue, []
+                for code in pending:
+                    self.chart_view.page().runJavaScript(code)
+            else:
+                QTimer.singleShot(50, self._verify_and_flush)
+
+        self.chart_view.page().runJavaScript(
+            "typeof _pageReady !== 'undefined' && _pageReady", _check
+        )
 
     def load_chart_html(self, html: str):
         self._chart_ready = False

@@ -375,21 +375,35 @@ class MainWindow(QWidget):
         ``load_chart_html``) should mark the pair as ready and flush the
         queue — otherwise JS calls like setFliCandles() run against an
         empty page and raise ReferenceError.
+
+        Also guards against QWebEngineView firing loadFinished BEFORE the
+        inline <script> block has been parsed — we poll for a _pageReady
+        flag that is set at the END of the template's script section.
         """
         if not self._pair_chart_html_loaded.get(pair, False):
             # about:blank (or other pre-template page) finished loading.
             # Do NOT mark the pair as ready.
             return
-        self._pair_chart_ready[pair] = True
-        queue = self._pair_chart_js_queue.get(pair, [])
-        if not queue:
-            return
         tab = self._tabs.get(pair)
         if not tab:
             return
-        pending, self._pair_chart_js_queue[pair] = queue, []
-        for code in pending:
-            tab.chart_view.page().runJavaScript(code)
+
+        def _check_ready(result):
+            if result:
+                self._pair_chart_ready[pair] = True
+                queue = self._pair_chart_js_queue.get(pair, [])
+                if not queue:
+                    return
+                pending, self._pair_chart_js_queue[pair] = queue, []
+                for code in pending:
+                    tab.chart_view.page().runJavaScript(code)
+            else:
+                # Page JS not ready yet — retry after 50 ms
+                QTimer.singleShot(50, lambda: self._flush_pair_js_queue(pair))
+
+        tab.chart_view.page().runJavaScript(
+            "typeof _pageReady !== 'undefined' && _pageReady", _check_ready
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # FLI worker (per-pair, background thread)

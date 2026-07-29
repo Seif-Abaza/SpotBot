@@ -731,6 +731,11 @@ new ResizeObserver(entries=>{
   }
 }).observe(document.getElementById('charts'));
 </script>
+<script>
+/* Page-readiness flag: set AFTER all chart functions are defined.
+   Python polls this to avoid running JS before the page is ready. */
+var _pageReady = true;
+</script>
 </body>
 </html>""".replace("__LW_CDN__", CHART_CDN_URL)
 
