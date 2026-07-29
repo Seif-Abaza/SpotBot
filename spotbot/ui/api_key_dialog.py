@@ -1,12 +1,27 @@
 """API Key Dialog: manage LIVE / DEMO keypairs with Fernet encryption."""
+
 import json
 import os
 
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
+
 from spotbot.constants import API_KEY_FILE, CONFIG_DIR
+from spotbot.styles import STYLE_QSS
+
+
 class APIKeyDialog(QDialog):
     """🔑 Manage both keypairs (LIVE / DEMO) in tabbed interface."""
 
@@ -164,5 +179,3 @@ class APIKeyDialog(QDialog):
         self.txt_live_secret.clear()
         self.txt_demo_key.clear()
         self.txt_demo_secret.clear()
-
-

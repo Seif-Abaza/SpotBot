@@ -10,12 +10,19 @@ this app uses PySide6.  We alias PyQt6.* -> PySide6.* in sys.modules so
 the notifier module imports cleanly without requiring PyQt6 to be
 installed.
 """
+
 import sys
 
 # ── Compatibility shim: PyQt6.* -> PySide6.* ──
 try:
     import types as _types
-    import PySide6 as _PySide6
+
+    import PySide6
+
+    # PySide6 submodules aren't auto-imported; import them explicitly
+    import PySide6.QtCore
+    import PySide6.QtGui
+    import PySide6.QtWidgets
 
     if "PyQt6" not in sys.modules:
         _pkg = _types.ModuleType("PyQt6")
@@ -24,9 +31,10 @@ try:
         for _sub in ("QtCore", "QtGui", "QtWidgets"):
             _full = f"PyQt6.{_sub}"
             if _full not in sys.modules:
-                sys.modules[_full] = getattr(_PySide6, _sub)
+                sys.modules[_full] = sys.modules[f"PySide6.{_sub}"]
     try:
         import trade_notifier  # noqa: F401
+
         TRADE_NOTIFIER_AVAILABLE = True
     except Exception as _tn_err:
         TRADE_NOTIFIER_AVAILABLE = False

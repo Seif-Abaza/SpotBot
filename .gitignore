@@ -1,0 +1,26 @@
+# Secrets and configuration
+*.backup
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.opencode/
+.omo/
+
+SFX/
+transactions/
+AGENTS.md
+
+crypto_backtesting.ipynb
+SpotBot.py.bk
+test_bybit.py

@@ -1,7 +1,16 @@
 """Closable tab widget that hosts CoinSession instances."""
 
-from PySide6.QtCore import Signal, Slot
-from PySide6.QtWidgets import QTabWidget, QWidget
+from PySide6.QtCore import Signal, Slot, QUrl, Qt
+from PySide6.QtWidgets import (
+    QTabWidget,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+)
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 
 class CoinTabWidget(QWidget):

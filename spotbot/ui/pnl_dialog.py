@@ -1,11 +1,24 @@
 """PnL Dialog: structured JSON → formatted profit/loss table."""
+
 import json
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
+
 from spotbot.constants import PNL_LOG_FILE
+from spotbot.styles import STYLE_QSS
+
+
 class PnLDialog(QDialog):
     """Shows PnL data in the exact JSON structure with a nice daily table."""
 
@@ -114,5 +127,3 @@ class PnLDialog(QDialog):
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
-
-

@@ -4,9 +4,10 @@ import json
 import sys
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 import ccxt
-
+import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -40,12 +41,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from spotbot.chart_renderer import (
+    _FLI_HTML_TEMPLATE,
+    ChartRenderer,
+    FLIChartWorker,
+    _to_chart_time,
+)
 from spotbot.constants import (
     API_KEY_FILE,
-    CCXT_AVAILABLE,
     CANDLE_LIMIT,
+    CCXT_AVAILABLE,
+    CHART_CDN_URL,
     CONFIG_DIR,
-    FLOAT_EPS,
     FLI_ADX_LEN,
     FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
@@ -60,6 +67,7 @@ from spotbot.constants import (
     FLI_USE_ATR,
     FLI_USE_CCI,
     FLI_USE_OBV,
+    FLOAT_EPS,
     NUMPY_AVAILABLE,
     PANDAS_AVAILABLE,
     PNL_LOG_FILE,
@@ -67,30 +75,36 @@ from spotbot.constants import (
     REFRESH_MS,
     RSI_BUY_THRESHOLD,
     RSI_SELL_THRESHOLD,
-    TIMEFRAMES,
     TIMEFRAME_MAP,
+    TIMEFRAMES,
     TRADE_HISTORY_LIMIT,
     TRADE_NOTIFIER_AVAILABLE,
 )
-from spotbot.styles import STYLE_QSS
 from spotbot.exchange import ExchangeManager
+from spotbot.indicators import IndicatorEngine
+from spotbot.styles import STYLE_QSS
 from spotbot.trading import TradingEngine
 from spotbot.transaction_logger import TransactionLogger
-from spotbot.chart_renderer import ChartRenderer, FLIChartWorker, _FLI_HTML_TEMPLATE
+from spotbot.ui.api_key_dialog import APIKeyDialog
+from spotbot.ui.coin_session import CoinSession
+from spotbot.ui.coin_tab_widget import CoinTabWidget
+from spotbot.ui.pnl_dialog import PnLDialog
+from spotbot.ui.resizable_ui import ResizableUI
 from spotbot.workers import (
     DataFetchWorker,
     IndicatorCalcWorker,
-    ParallelPipeline,
     PairLoaderWorker,
+    ParallelPipeline,
     ProcessWorker,
     WebSocketWorker,
 )
-from spotbot.ui.resizable_ui import ResizableUI
-from spotbot.ui.coin_session import CoinSession
-from spotbot.ui.coin_tab_widget import CoinTabWidget
-from spotbot.ui.api_key_dialog import APIKeyDialog
-from spotbot.ui.pnl_dialog import PnLDialog
-from spotbot.constants import TRADE_NOTIFIER_AVAILABLE
+
+try:
+    import numpy as np
+
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
 
 class MainWindow(QWidget):
@@ -114,6 +128,8 @@ class MainWindow(QWidget):
         self.notifier = None
         if TRADE_NOTIFIER_AVAILABLE:
             try:
+                import trade_notifier
+
                 self.notifier = trade_notifier.TradeNotifier(enabled=True)
             except Exception as e:
                 print(f"[NOTIFIER] init failed: {e}")

@@ -5,6 +5,10 @@ import base64
 import hashlib
 import json
 import os
+import random
+import time
+
+import ccxtpro
 
 try:
     import ccxt
@@ -16,10 +20,12 @@ except ImportError:
 from spotbot.constants import (
     API_KEY_FILE,
     API_KEY_PASSPHRASE,
+    CCXT_PRO_AVAILABLE,
     CONFIG_DIR,
     CCXT_AVAILABLE as _CCXT_AVAILABLE,
     FLOAT_EPS,
     QUOTE_ASSETS,
+    TIMEFRAME_MAP,
     WALLET_MIN_NOTIONAL_USDT,
     ALLOW_MOCK_CANDLES,
     TRADE_HISTORY_LIMIT,
