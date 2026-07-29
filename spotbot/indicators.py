@@ -374,3 +374,72 @@ class IndicatorEngine:
 
 def _pad(candles, data):
     return [None] * (len(candles) - len(data)) + data if data else [None] * len(candles)
+
+
+def backtest_fli_signals(df: "pd.DataFrame") -> dict:
+    """Run a simple backtest on FLI signals already computed in the DataFrame.
+
+    Scans every row for ``buy_signal`` / ``sell_signal`` and simulates a
+    long-only strategy (buy → sell → buy → …) to produce:
+
+    * **markers**: list of ``{time, action, price}`` dicts ready for the
+      chart renderer.
+    * **stats**: ``total_trades``, ``wins``, ``losses``, ``win_rate``,
+      ``total_pnl_pct`` — a quick summary the UI can display.
+
+    ``time`` values are returned as **Unix seconds** (int) to match
+    ``_to_chart_time`` expectations.
+    """
+    markers = []
+    stats = {"total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+             "total_pnl_pct": 0.0}
+
+    if df is None or df.empty or "buy_signal" not in df.columns:
+        return {"markers": markers, "stats": stats}
+
+    in_position = False
+    entry_price = 0.0
+    trade_pnl_list = []
+
+    for i, row in df.iterrows():
+        ts_raw = row.get("time")
+        if ts_raw is None:
+            ts_raw = row.get("timestamp")
+        if ts_raw is None:
+            continue
+
+        # Convert timestamp to unix seconds int
+        try:
+            if isinstance(ts_raw, pd.Timestamp):
+                ts_sec = int(ts_raw.timestamp())
+            else:
+                v = float(ts_raw)
+                ts_sec = int(v / 1000.0) if v > 1e10 else int(v)
+        except (TypeError, ValueError):
+            continue
+
+        price = float(row.get("close", 0))
+
+        if not in_position and row.get("buy_signal", False):
+            in_position = True
+            entry_price = price
+            markers.append({"time": ts_sec, "action": "bt_buy", "price": price})
+
+        elif in_position and row.get("sell_signal", False):
+            in_position = False
+            pnl_pct = ((price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+            trade_pnl_list.append(pnl_pct)
+            markers.append({"time": ts_sec, "action": "bt_sell", "price": price})
+
+    # Compute stats
+    stats["total_trades"] = len(trade_pnl_list)
+    stats["wins"] = sum(1 for p in trade_pnl_list if p > 0)
+    stats["losses"] = sum(1 for p in trade_pnl_list if p <= 0)
+    stats["win_rate"] = (
+        (stats["wins"] / stats["total_trades"] * 100.0)
+        if stats["total_trades"] > 0
+        else 0.0
+    )
+    stats["total_pnl_pct"] = sum(trade_pnl_list) if trade_pnl_list else 0.0
+
+    return {"markers": markers, "stats": stats}

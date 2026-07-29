@@ -461,6 +461,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
         <div class="row"><span class="lbl">BB Lower:</span><span class="val" id="iBBL">--</span></div>
         <div class="signal none" id="iSignal">-- WAIT</div>
       </div>
+      <div id="btPanel" style="display:none;position:absolute;bottom:24px;right:14px;z-index:10;
+        font-family:'Consolas','SF Mono',monospace;
+        background:rgba(13,16,20,0.92);backdrop-filter:blur(6px);
+        padding:10px 12px;border-radius:8px;
+        border:1px solid #2b3139;min-width:185px;
+        box-shadow:0 8px 24px rgba(0,0,0,0.45);">
+        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Backtest</div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Trades:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btTrades">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Win Rate:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btWinRate">0%</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Wins:</span><span style="font-size:11px;font-weight:700" id="btWins">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Losses:</span><span style="font-size:11px;font-weight:700" id="btLosses">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Net P&L:</span><span style="font-size:11px;font-weight:700" id="btPnl">0.00%</span></div>
+      </div>
       <div class="badge wait" id="badge"><span id="badgeText">SCANNING...</span></div>
     </div>
   </div>
@@ -523,7 +536,7 @@ const $tPos=document.getElementById('tPos'),$tEntry=document.getElementById('tEn
 const $tQty=document.getElementById('tQty'),$tUPnl=document.getElementById('tUPnl');
 const $tDPnl=document.getElementById('tDPnl'),$tTPnl=document.getElementById('tTPnl');
 
-let _lastCandle=null, _allMarkers=[];
+let _lastCandle=null, _allMarkers=[], _btMarkers=[];
 
 fliChart.subscribeCrosshairMove(p => {
   if(!p||!p.time){refreshLegend(_lastCandle);return;}
@@ -554,6 +567,15 @@ function setMarkers(markers){
   _allMarkers=markers.slice();
   _allMarkers.sort((a,b)=>a.time-b.time);
   fliCandles.setMarkers(_allMarkers);
+}
+function setBacktestMarkers(btMarkers){
+  _btMarkers=btMarkers.slice();
+  _mergeMarkers();
+}
+function _mergeMarkers(){
+  const combined=_allMarkers.slice().concat(_btMarkers.slice());
+  combined.sort((a,b)=>a.time-b.time);
+  fliCandles.setMarkers(combined);
 }
 function addMarker(m){
   const dup=_allMarkers.some(x=>x.time===m.time&&x.text===m.text);
@@ -636,6 +658,20 @@ const $toast=document.getElementById('toast');
 const $toastMsg=document.getElementById('toastMsg');
 const $toastIcon=document.getElementById('toastIcon');
 let _toastTimer=null;
+function updateBacktestStats(trades,winRate,wins,losses,pnl){
+  document.getElementById('btPanel').style.display=trades>0?'block':'none';
+  document.getElementById('btTrades').textContent=trades;
+  document.getElementById('btWinRate').textContent=winRate.toFixed(1)+'%';
+  document.getElementById('btWinRate').style.color=winRate>=50?'#2962ff':'#ff6d00';
+  document.getElementById('btWins').textContent=wins;
+  document.getElementById('btWins').style.color='#2962ff';
+  document.getElementById('btLosses').textContent=losses;
+  document.getElementById('btLosses').style.color='#ff6d00';
+  var $pnl=document.getElementById('btPnl');
+  $pnl.textContent=(pnl>0?'+':'')+pnl.toFixed(2)+'%';
+  $pnl.style.color=pnl>0?'#2962ff':pnl<0?'#ff6d00':'#848e9c';
+}
+
 function showToast(type,msg,duration){
   if(_toastTimer){clearTimeout(_toastTimer);_toastTimer=null;}
   $toast.className='show '+type;

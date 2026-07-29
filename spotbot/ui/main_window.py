@@ -90,6 +90,8 @@ from spotbot.ui.coin_session import CoinSession
 from spotbot.ui.coin_tab_widget import CoinTabWidget
 from spotbot.ui.pnl_dialog import PnLDialog
 from spotbot.ui.resizable_ui import ResizableUI
+from spotbot.chart_renderer import ChartRenderer, FLIChartWorker, _FLI_HTML_TEMPLATE, _to_chart_time
+from spotbot.indicators import backtest_fli_signals
 from spotbot.workers import (
     DataFetchWorker,
     IndicatorCalcWorker,
@@ -165,6 +167,8 @@ class MainWindow(QWidget):
         self._pair_chart_ready: dict[str, bool] = {}  # pair → chart loaded flag
         self._pair_chart_first_load: dict[str, bool] = {}  # pair → first-load flag
         self._pair_chart_js_queue: dict[str, list[str]] = {}  # pair → queued JS
+        # ── Per-pair backtest markers (historical FLI signals) ──
+        self._pair_backtest_markers: dict[str, list] = {}  # pair → backtest markers
         # ── Fix: track whether the REAL chart HTML (not about:blank) has
         #    been loaded for this pair.  The about:blank initial page also
         #    fires loadFinished, which would prematurely set
@@ -337,6 +341,7 @@ class MainWindow(QWidget):
             self._pair_candles[pair] = []
             self._pair_markers[pair] = []
             self._pair_fli_df[pair] = None
+            self._pair_backtest_markers[pair] = []
         return {
             "ready": self._pair_chart_ready[pair],
             "first_load": self._pair_chart_first_load[pair],
@@ -410,6 +415,9 @@ class MainWindow(QWidget):
         self._pair_fli_df[pair] = df
         self._set_fli_candles(pair, df)
         self._set_fli_lines(pair, df)
+        # ── Backtest: run FLI signal backtest on historical data ──
+        self._run_backtest(pair, df)
+        # ── Set trade markers (backtest markers are pushed by _run_backtest) ──
         self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []))
         self._update_fli_info_panel(pair, df.iloc[-1])
         self._refresh_fli_trade_panel(pair)
@@ -420,6 +428,59 @@ class MainWindow(QWidget):
     # ─────────────────────────────────────────────────────────────────────
     # Chart JS builders (per-pair) — ported from new_app.py
     # ─────────────────────────────────────────────────────────────────────
+
+    def _run_backtest(self, pair: str, df):
+        """Run a backtest on the FLI DataFrame and store markers + update stats panel."""
+        try:
+            result = backtest_fli_signals(df)
+            markers = result.get("markers", [])
+            stats = result.get("stats", {})
+            self._pair_backtest_markers[pair] = markers
+            # Push backtest markers to chart with distinct colors
+            chart_markers = []
+            for m in markers:
+                action = m.get("action")
+                if action == "bt_buy":
+                    chart_markers.append({
+                        "time": m["time"],
+                        "position": "belowBar",
+                        "color": "#2962ff",   # Blue — distinct from trade green
+                        "shape": "arrowUp",
+                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    })
+                elif action == "bt_sell":
+                    chart_markers.append({
+                        "time": m["time"],
+                        "position": "aboveBar",
+                        "color": "#ff6d00",   # Orange — distinct from trade red
+                        "shape": "arrowDown",
+                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    })
+            self._chart_js(
+                pair,
+                f"setBacktestMarkers({json.dumps(chart_markers)});"
+            )
+            # Update backtest stats panel
+            self._chart_js(
+                pair,
+                f"updateBacktestStats("
+                f"{stats.get('total_trades', 0)},"
+                f"{stats.get('win_rate', 0):.1f},"
+                f"{stats.get('wins', 0)},"
+                f"{stats.get('losses', 0)},"
+                f"{stats.get('total_pnl_pct', 0):.2f}"
+                f");"
+            )
+            if markers:
+                self._set_status(
+                    f"[Backtest] {pair}: {stats.get('total_trades', 0)} trades, "
+                    f"win rate {stats.get('win_rate', 0):.1f}%, "
+                    f"net P&L {stats.get('total_pnl_pct', 0):+.2f}%"
+                )
+        except Exception as e:
+            print(f"[BACKTEST] Error for {pair}: {e}")
 
     @staticmethod
     def _fli_ts(row_time):
@@ -491,22 +552,19 @@ class MainWindow(QWidget):
         self._chart_js(pair, f"setFliBBUpper({json.dumps(bbu)});")
         self._chart_js(pair, f"setFliBBLower({json.dumps(bbl)});")
 
-    def _set_markers(self, pair: str, df, trade_markers=None):
-        """Push PENDING/BUY/SELL markers to the chart.
+    def _set_markers(self, pair: str, df, trade_markers=None, backtest_markers=None):
+        """Push PENDING/BUY/SELL markers + backtest markers to the chart.
 
         Per Task 4 spec:
-          • PENDING is shown ONLY when SAI/FLI sends a Buy/Sell signal
+          * PENDING is shown ONLY when SAI/FLI sends a Buy/Sell signal
             and the engine is waiting for 1-candle confirmation.
-          • After confirmation, the PENDING marker is REMOVED and a
+          * After confirmation, the PENDING marker is REMOVED and a
             BUY or SELL marker is set on the confirmation candle.
-          • After rejection, the PENDING marker is removed (no entry
+          * After rejection, the PENDING marker is removed (no entry
             or exit happened).
 
-        The FLI df's buy_signal/sell_signal columns are no longer
-        rendered as direct BUY/SELL markers — the engine's pending →
-        confirmed → buy/sell flow is the single source of truth for
-        chart markers.  This keeps the chart in sync with the bot's
-        actual entry/exit decisions.
+        Backtest markers (blue/orange) are merged via the JS-side
+        ``_mergeMarkers`` helper so that both sets display together.
         """
         markers = []
         # ── Trade markers (pending / buy / sell) drive the chart ──
@@ -554,6 +612,30 @@ class MainWindow(QWidget):
                 )
         markers.sort(key=lambda x: float(x["time"]))
         self._chart_js(pair, f"setMarkers({json.dumps(markers)});")
+        # ── Re-push backtest markers so they merge with trade markers ──
+        if backtest_markers:
+            bt_chart = []
+            for m in backtest_markers:
+                action = m.get("action")
+                if action == "bt_buy":
+                    bt_chart.append({
+                        "time": m["time"],
+                        "position": "belowBar",
+                        "color": "#2962ff",
+                        "shape": "arrowUp",
+                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    })
+                elif action == "bt_sell":
+                    bt_chart.append({
+                        "time": m["time"],
+                        "position": "aboveBar",
+                        "color": "#ff6d00",
+                        "shape": "arrowDown",
+                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                        "size": 1,
+                    })
+            self._chart_js(pair, f"setBacktestMarkers({json.dumps(bt_chart)});")
 
     def _update_fli_info_panel(self, pair: str, row):
         """Push the last bar's indicator readings into the on-chart info box."""
@@ -1106,15 +1188,18 @@ class MainWindow(QWidget):
         PENDING/BUY/SELL state without waiting for the next FLI worker
         pass."""
         df = self._pair_fli_df.get(pair)
+        bt_markers = self._pair_backtest_markers.get(pair, [])
         if df is None or getattr(df, "empty", True):
             # No FLI df yet — fall back to a bare setMarkers() call with
             # just the trade markers so the user sees the PENDING badge
             # even before the FLI worker finishes.
             self._set_markers(
-                pair, None, trade_markers=self._pair_markers.get(pair, [])
+                pair, None, trade_markers=self._pair_markers.get(pair, []),
+                backtest_markers=bt_markers,
             )
             return
-        self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []))
+        self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []),
+                          backtest_markers=bt_markers)
 
     def _format_fli_data(self, fli_data: dict, candles: list) -> list[str]:
         """Build the JS call list that pushes FLI indicator series + UI state
@@ -1300,6 +1385,7 @@ class MainWindow(QWidget):
         self._pair_chart_js_queue.pop(pair, None)
         self._pair_chart_html_loaded.pop(pair, None)
         self._pair_pending_ts.pop(pair, None)
+        self._pair_backtest_markers.pop(pair, None)
         if session and session.pipeline:
             session.pipeline.stop()
             session.pipeline.wait(2000)
