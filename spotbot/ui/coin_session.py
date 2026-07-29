@@ -61,6 +61,9 @@ class CoinSession:
         self.entry_qty: float | None = None
         self.balance: float = 0.0
 
+        self.investment_amount: float = investment_amount
+        self.investment_mode: str = investment_mode
+
         self.halted: bool = False
         self.trading_enabled: bool = False  # user must toggle "Start Trading"
         self.pipeline = None  # CoinPipelineThread | ParallelPipeline | DataFetchWorker — set by MainWindow
@@ -88,6 +91,12 @@ class CoinSession:
     def resume(self):
         self.halted = False
         self.engine.resume()
+
+    def set_investment(self, amount: float, mode: str):
+        """Update this session's investment amount and mode."""
+        self.investment_amount = amount
+        self.investment_mode = mode
+        self.engine.set_params(amount, mode, self.pair)
 
     def update_balance(self, balance: float):
         self.balance = balance

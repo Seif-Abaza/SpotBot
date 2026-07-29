@@ -183,6 +183,9 @@ class MainWindow(QWidget):
         self._footer_messages: deque = deque(maxlen=50)
         # ── Global trading gate (Start Trading button) ──
         self._global_trading_enabled: bool = False
+        # ── Simulated portfolio balance: starts from exchange USDT balance,
+        #    decreases on buy, increases on sell across all tabs. ──
+        self._portfolio_balance: float = 0.0
         # Code Review 3.6: one-shot flag set when the user has just
         # confirmed the LIVE-trading warning dialog — lets the next
         # _on_start_trading_toggled(True) call skip the dialog.
@@ -684,7 +687,7 @@ class MainWindow(QWidget):
         d_pnl = float(summary.get("realized_pnl_usdt", 0.0))
         t_pnl = d_pnl + u_pnl
         mode = "LIVE" if self.ui.radLive.isChecked() else "DEMO"
-        wallet_val = self.ui.lnWalletBalance.value()
+        wallet_val = self._portfolio_balance if self._portfolio_balance > 0 else self.ui.lnWalletBalance.value()
         self._chart_js(
             pair,
             f"updateTradePanel("
@@ -950,6 +953,34 @@ class MainWindow(QWidget):
         note = data.get("note", "")
         action = data.get("action", "trade")
         self._set_status(f"{pair} {action.upper()}: {note}")
+
+        # ── Portfolio balance tracking: decrease on buy, increase on sell ──
+        if action in ("buy", "sell"):
+            trade = data.get("trade", {}) or {}
+            try:
+                value_usdt = float(trade.get("value_usdt", 0) or 0)
+            except (TypeError, ValueError):
+                value_usdt = 0.0
+            if action == "buy":
+                self._portfolio_balance -= value_usdt
+                self._set_status(
+                    f"{pair} BUY: portfolio {self._portfolio_balance:.2f} USDT (-{value_usdt:.2f})"
+                )
+            elif action == "sell":
+                pnl_usdt = trade.get("pnl_usdt")
+                realized = value_usdt
+                try:
+                    realized = float(pnl_usdt) + value_usdt if pnl_usdt else value_usdt
+                except (TypeError, ValueError):
+                    realized = value_usdt
+                self._portfolio_balance += value_usdt
+                self._set_status(
+                    f"{pair} SELL: portfolio {self._portfolio_balance:.2f} USDT (+{value_usdt:.2f})"
+                )
+            # Update global wallet display
+            self.ui.lnWalletBalance.setProperty("value", self._portfolio_balance)
+            self.ui.lnWalletBalance.display(self._portfolio_balance)
+
         # ── Task 3: sound + toast notification for executed trades ──
         if action in ("buy", "sell"):
             trade = data.get("trade", {}) or {}
@@ -1507,14 +1538,21 @@ class MainWindow(QWidget):
             self._safe_notify("notify_bot_stop", mode, "disarmed by user")
 
     def _update_wallet(self, balance):
-        self.ui.lnWalletBalance.setProperty("value", balance)
-        self.ui.lnWalletBalance.display(balance)
-        # Set dsbInvestmintAmount maximum to wallet balance
-        self.ui.dsbInvestmintAmount.setMaximum(balance if balance > 0 else 10000.0)
-        # Set slider from 0 to 100% of balance
-        # slider value = percentage (0-100), spinbox = percentage * balance / 100
+        # ── Initialize portfolio on first exchange balance fetch ──
+        if self._portfolio_balance <= 0 and balance > 0:
+            self._portfolio_balance = balance
+        self.ui.lnWalletBalance.setProperty("value", self._portfolio_balance)
+        self.ui.lnWalletBalance.display(self._portfolio_balance)
+        # Set dsbInvestmintAmount maximum to portfolio balance
+        self.ui.dsbInvestmintAmount.setMaximum(
+            self._portfolio_balance if self._portfolio_balance > 0 else 10000.0
+        )
         pct = self.ui.slidInvistmineAmount.value()
-        self.ui.dsbInvestmintAmount.setValue(pct * balance / 100.0)
+        self.ui.dsbInvestmintAmount.blockSignals(True)
+        self.ui.dsbInvestmintAmount.setValue(
+            pct * self._portfolio_balance / 100.0
+        )
+        self.ui.dsbInvestmintAmount.blockSignals(False)
 
     # ── Exchange selected → load spot pairs with progress ──
 
@@ -1634,9 +1672,8 @@ class MainWindow(QWidget):
     @Slot(int)
     def _on_tab_changed(self, idx: int):
         """When the user switches tabs, sync the timeframe radio buttons
-        to reflect the active tab's stored timeframe.  Signals are blocked
-        on the radio group so we don't recursively trigger
-        ``_on_timeframe_changed`` (which would force a chart reload).
+        and investment controls to reflect the active tab's stored values.
+        Signals are blocked so we don't recursively trigger handlers.
         """
         if idx < 0:
             return
@@ -1646,6 +1683,9 @@ class MainWindow(QWidget):
         session = getattr(tab, "session", None)
         if session is None:
             return
+        pair = session.pair
+
+        # ── Sync timeframe radio buttons ──
         tf = getattr(session, "timeframe", None) or self._tf()
         rb_map = {
             "3m": self.ui.rb_timefram_3m,
@@ -1655,17 +1695,45 @@ class MainWindow(QWidget):
             "1h": self.ui.rb_timefram_1h,
         }
         target_rb = rb_map.get(tf, self.ui.rb_timefram_3m)
-        # Block signals on every radio button so the toggled signal
-        # doesn't fire _on_timeframe_changed (which would reload the
-        # chart we just switched to).
         for rb in rb_map.values():
             rb.blockSignals(True)
         target_rb.setChecked(True)
         for rb in rb_map.values():
             rb.blockSignals(False)
+
+        # ── Sync investment amount + mode to active tab's values ──
+        inv = getattr(session, "investment_amount", None)
+        mode = getattr(session, "investment_mode", "FIXED")
+        if inv is not None:
+            self.ui.dsbInvestmintAmount.blockSignals(True)
+            self.ui.dsbInvestmintAmount.setValue(inv)
+            self.ui.dsbInvestmintAmount.blockSignals(False)
+            # Sync slider percentage
+            port = self._portfolio_balance if self._portfolio_balance > 0 else (
+                self.ui.lnWalletBalance.value() if self.ui.lnWalletBalance.value() > 0 else 10000
+            )
+            if port > 0:
+                pct = int(inv / port * 100)
+                self.ui.slidInvistmineAmount.blockSignals(True)
+                self.ui.slidInvistmineAmount.setValue(min(pct, 100))
+                self.ui.slidInvistmineAmount.blockSignals(False)
+        if mode == "CUMULATIVE":
+            self.ui.rbStyleCumu.blockSignals(True)
+            self.ui.rbStyleCumu.setChecked(True)
+            self.ui.rbStyleFixed.blockSignals(True)
+            self.ui.rbStyleFixed.setChecked(False)
+            self.ui.rbStyleCumu.blockSignals(False)
+            self.ui.rbStyleFixed.blockSignals(False)
+        else:
+            self.ui.rbStyleFixed.blockSignals(True)
+            self.ui.rbStyleFixed.setChecked(True)
+            self.ui.rbStyleCumu.blockSignals(True)
+            self.ui.rbStyleCumu.setChecked(False)
+            self.ui.rbStyleFixed.blockSignals(False)
+            self.ui.rbStyleCumu.blockSignals(False)
+
         # Also refresh the bottom dockable panel (PnL + rt_table) to
         # show this tab's data.
-        pair = session.pair
         if hasattr(self, "_refresh_bottom_panel_for"):
             self._refresh_bottom_panel_for(pair)
         # Update refresh interval to match the active tab's timeframe.
@@ -1679,61 +1747,71 @@ class MainWindow(QWidget):
             self._disconnect()
             self._connect_exchange()
 
-    def _update_all_sessions_investment(self):
-        """Directly propagate the spinbox/slider value to every open
-        trading session's engine. Called whenever the user changes
-        dsbInvestmintAmount or slidInvistmineAmount — no extra confirmation
-        step, the new amount takes effect immediately on the next trade."""
+    def _update_active_session_investment(self):
+        """Propagate the spinbox/slider value to the ACTIVE tab's session
+        engine only.  Each tab has its own investment amount."""
+        pair = self._active_pair()
+        if not pair:
+            return
+        session = self._sessions.get(pair)
+        if not session:
+            return
         inv = self.ui.dsbInvestmintAmount.value()
         mode = "FIXED" if self.ui.rbStyleFixed.isChecked() else "CUMULATIVE"
-        for session in self._sessions.values():
-            session.engine.set_params(inv, mode, session.pair)
-        # Update logger meta so future trade records reflect the new amount
-        self.tx_logger.set_meta(
-            self.ui.cbExchange.currentText(),
-            self.ui.radDemo.isChecked(),
-            mode,
-            inv,
-        )
+        session.set_investment(inv, mode)
+
+    def _active_pair(self) -> str | None:
+        """Return the pair for the currently active tab, or None."""
+        idx = self.ui.tabWidget.currentIndex()
+        if idx < 0:
+            return None
+        tab = self.ui.tabWidget.widget(idx)
+        if tab is None:
+            return None
+        session = getattr(tab, "session", None)
+        return session.pair if session else None
 
     @Slot(int)
     def _on_slider_changed(self, pct):
-        balance = (
+        port = self._portfolio_balance if self._portfolio_balance > 0 else (
             self.ui.lnWalletBalance.value()
             if self.ui.lnWalletBalance.value() > 0
             else 10000
         )
-        # Block signals on the spinbox to avoid recursive signal firing
         self.ui.dsbInvestmintAmount.blockSignals(True)
-        self.ui.dsbInvestmintAmount.setValue(pct * balance / 100.0)
+        self.ui.dsbInvestmintAmount.setValue(pct * port / 100.0)
         self.ui.dsbInvestmintAmount.blockSignals(False)
-        self._update_all_sessions_investment()
+        self._update_active_session_investment()
+        pair = self._active_pair()
+        label = pair or "N/A"
         self._set_status(
-            f"Investment updated → {self.ui.dsbInvestmintAmount.value():.2f} USDT"
+            f"[{label}] Investment → {self.ui.dsbInvestmintAmount.value():.2f} USDT"
         )
 
     @Slot(float)
     def _on_spinbox_changed(self, val):
-        balance = (
+        port = self._portfolio_balance if self._portfolio_balance > 0 else (
             self.ui.lnWalletBalance.value()
             if self.ui.lnWalletBalance.value() > 0
             else 10000
         )
-        if balance > 0:
-            pct = int(val / balance * 100)
-            # Block signals on the slider to avoid recursive signal firing
+        if port > 0:
+            pct = int(val / port * 100)
             self.ui.slidInvistmineAmount.blockSignals(True)
-            self.ui.slidInvistmineAmount.setValue(pct)
+            self.ui.slidInvistmineAmount.setValue(min(pct, 100))
             self.ui.slidInvistmineAmount.blockSignals(False)
-        self._update_all_sessions_investment()
-        self._set_status(f"Investment updated → {val:.2f} USDT")
+        self._update_active_session_investment()
+        pair = self._active_pair()
+        label = pair or "N/A"
+        self._set_status(f"[{label}] Investment → {val:.2f} USDT")
 
     @Slot()
     def _on_invest_style_changed(self):
+        self._update_active_session_investment()
+        pair = self._active_pair()
         mode = "FIXED" if self.ui.rbStyleFixed.isChecked() else "CUMULATIVE"
-        self._update_all_sessions_investment()
-        self.tx_logger.investment_mode = mode
-        self._set_status(f"Investment → {mode}")
+        label = pair or "N/A"
+        self._set_status(f"[{label}] Investment mode → {mode}")
 
     @Slot()
     def _on_connect_disconnect(self):
@@ -1825,6 +1903,7 @@ class MainWindow(QWidget):
             self._halt_and_remove(pair)
         self.exch_mgr.disconnect()
         self._is_connected = False
+        self._portfolio_balance = 0.0
         self.ui.btnConnDissconExchange.setText("Connection")
         self._set_status("Disconnected ❌")
 
