@@ -1,0 +1,119 @@
+{
+  "date": "2026-07-19",
+  "exchange": "bybit",
+  "mode": "DEMO",
+  "investment_mode": "FIXED",
+  "trades": [
+    {
+      "timestamp": "2026-07-19T04:22:01.072239+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02547,
+      "quantity": 3976.9250538596275,
+      "value_usdt": 101.2922811218047,
+      "order_id": "sim-1784434921072",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =101.2923 USDT | Wallet Now =0.0000",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T04:32:01.014615+00:00",
+      "side": "sell",
+      "symbol": "BILL/USDT",
+      "price": 0.02506,
+      "quantity": 3976.9250538596275,
+      "value_usdt": 99.66174184972226,
+      "order_id": "sim-1784435521013",
+      "pnl_usdt": -1.6305392720824443,
+      "pnl_pct": -1.6097369454259887,
+      "note": "SELL | entry=0.0255 exit=0.0251 | wallet_after=99.6617",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T04:58:21.402024+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02441,
+      "quantity": 4082.824328132825,
+      "value_usdt": 99.66174184972226,
+      "order_id": "sim-1784437097959",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =99.6617 USDT | Wallet Now =0.0000",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T06:13:23.065092+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02469,
+      "quantity": 40502.22762251924,
+      "value_usdt": 1000.0,
+      "order_id": "sim-1784441595844",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =1000.0000 USDT | Wallet Now =148053.8178",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T06:33:37.825016+00:00",
+      "side": "sell",
+      "symbol": "BILL/USDT",
+      "price": 0.02482,
+      "quantity": 40502.22762251924,
+      "value_usdt": 1005.2652895909275,
+      "order_id": "sim-1784442794026",
+      "pnl_usdt": 5.265289590927523,
+      "pnl_pct": 0.5265289590927523,
+      "note": "SELL | entry=0.0247 exit=0.0248 | wallet_after=149059.0831",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T06:38:01.992378+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02508,
+      "quantity": 39872.408293460925,
+      "value_usdt": 1000.0000000000001,
+      "order_id": "sim-1784443080994",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =1000.0000 USDT | Wallet Now =148059.0831",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T08:14:01.785501+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02672,
+      "quantity": 37425.1497005988,
+      "value_usdt": 999.9999999999999,
+      "order_id": "sim-1784448841018",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =1000.0000 USDT | Wallet Now =147157.3527",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-19T08:26:01.649778+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02629,
+      "quantity": 38037.27653100038,
+      "value_usdt": 1000.0000000000001,
+      "order_id": "sim-1784449560983",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =1000.0000 USDT | Wallet Now =148200.3219",
+      "mode": "DEMO"
+    }
+  ],
+  "summary": {
+    "total_trades": 8,
+    "buys": 6,
+    "sells": 2,
+    "realized_pnl_usdt": 3.6347503188450787,
+    "realized_pnl_pct": -1.0832079863332362
+  }
+}

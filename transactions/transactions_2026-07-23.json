@@ -1,0 +1,172 @@
+{
+  "date": "2026-07-23",
+  "exchange": "bybit",
+  "mode": "DEMO",
+  "investment_mode": "CUMULATIVE",
+  "trades": [
+    {
+      "timestamp": "2026-07-23T15:20:01.615617+00:00",
+      "side": "buy",
+      "symbol": "BILL/USDT",
+      "price": 0.02674,
+      "quantity": 0.0,
+      "value_usdt": 0.0,
+      "order_id": "sim-1784820001006",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | Entry amount =100.0000 USDT | Wallet Now =148419.9373",
+      "mode": "DEMO"
+    },
+    {
+      "timestamp": "2026-07-23T18:22:41.676224+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.3966,
+      "quantity": 252.14,
+      "value_usdt": 99.998724,
+      "order_id": "demo-1784830961675",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=100.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T19:17:10.922003+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.399,
+      "quantity": 375.93,
+      "value_usdt": 149.99607,
+      "order_id": "demo-1784834230921",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=150.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T19:42:41.668583+00:00",
+      "side": "sell",
+      "symbol": "ONDO/USDT",
+      "price": 0.3995,
+      "quantity": 375.93,
+      "value_usdt": 150.18403500000002,
+      "order_id": "demo-1784835761668",
+      "pnl_usdt": 0.1879650000000197,
+      "pnl_pct": 0.12531328320803317,
+      "note": "FLI sell_signal | entry=0.3990 exit=0.3995"
+    },
+    {
+      "timestamp": "2026-07-23T19:48:00.639465+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.4,
+      "quantity": 250.0,
+      "value_usdt": 100.0,
+      "order_id": "demo-1784836080638",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=100.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T20:27:55.301755+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.4029,
+      "quantity": 248.2,
+      "value_usdt": 99.99977999999999,
+      "order_id": "demo-1784838475301",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=100.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T20:32:27.502288+00:00",
+      "side": "sell",
+      "symbol": "ONDO/USDT",
+      "price": 0.402,
+      "quantity": 248.2,
+      "value_usdt": 99.7764,
+      "order_id": "demo-1784838747502",
+      "pnl_usdt": -0.2233799999999917,
+      "pnl_pct": -0.22338049143707286,
+      "note": "FLI sell_signal | entry=0.4029 exit=0.4020"
+    },
+    {
+      "timestamp": "2026-07-23T20:46:00.898666+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.4015,
+      "quantity": 249.06,
+      "value_usdt": 99.99759,
+      "order_id": "demo-1784839560898",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=100.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T21:04:54.452038+00:00",
+      "side": "sell",
+      "symbol": "ONDO/USDT",
+      "price": 0.4035,
+      "quantity": 249.06,
+      "value_usdt": 100.49571,
+      "order_id": "demo-1784840694451",
+      "pnl_usdt": 0.4981200000000001,
+      "pnl_pct": 0.49813200498132015,
+      "note": "FLI sell_signal | entry=0.4015 exit=0.4035"
+    },
+    {
+      "timestamp": "2026-07-23T21:21:45.761138+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.4026,
+      "quantity": 2483.85,
+      "value_usdt": 999.99801,
+      "order_id": "demo-1784841705760",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=1000.0000 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T21:30:01.587180+00:00",
+      "side": "sell",
+      "symbol": "ONDO/USDT",
+      "price": 0.4019,
+      "quantity": 2481.37,
+      "value_usdt": 997.2626029999999,
+      "order_id": "demo-1784842201586",
+      "pnl_usdt": -1.7369590000000699,
+      "pnl_pct": -0.17386984600100056,
+      "note": "FLI sell_signal | entry=0.4026 exit=0.4019"
+    },
+    {
+      "timestamp": "2026-07-23T21:57:01.399997+00:00",
+      "side": "buy",
+      "symbol": "ONDO/USDT",
+      "price": 0.4021,
+      "quantity": 2482.62,
+      "value_usdt": 998.261502,
+      "order_id": "demo-1784843821399",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=998.2630 USDT"
+    },
+    {
+      "timestamp": "2026-07-23T21:59:03.666451+00:00",
+      "side": "sell",
+      "symbol": "ONDO/USDT",
+      "price": 0.4016,
+      "quantity": 2480.13,
+      "value_usdt": 996.020208,
+      "order_id": "demo-1784843943665",
+      "pnl_usdt": -1.2400650000000724,
+      "pnl_pct": -0.1243471773190821,
+      "note": "FLI sell_signal | entry=0.4021 exit=0.4016"
+    }
+  ],
+  "summary": {
+    "total_trades": 13,
+    "buys": 8,
+    "sells": 5,
+    "realized_pnl_usdt": -2.514319000000114,
+    "realized_pnl_pct": 0.10184777343219781
+  }
+}

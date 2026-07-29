@@ -1,0 +1,14 @@
+{
+  "date": "2026-07-16",
+  "exchange": "",
+  "mode": "",
+  "investment_mode": "",
+  "trades": [],
+  "summary": {
+    "total_trades": 0,
+    "buys": 0,
+    "sells": 0,
+    "realized_pnl_usdt": 0.0,
+    "realized_pnl_pct": 0.0
+  }
+}

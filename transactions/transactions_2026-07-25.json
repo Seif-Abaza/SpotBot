@@ -1,0 +1,27 @@
+{
+  "date": "2026-07-25",
+  "exchange": "bybit",
+  "mode": "DEMO",
+  "investment_mode": "FIXED",
+  "trades": [
+    {
+      "timestamp": "2026-07-25T11:20:01.043762+00:00",
+      "side": "buy",
+      "symbol": "XRP/USDT",
+      "price": 1.0907,
+      "quantity": 91.68,
+      "value_usdt": 99.99537600000001,
+      "order_id": "demo-1784978401043",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "FLI buy_signal | notional_target=100.0000 USDT"
+    }
+  ],
+  "summary": {
+    "total_trades": 1,
+    "buys": 1,
+    "sells": 0,
+    "realized_pnl_usdt": 0.0,
+    "realized_pnl_pct": 0.0
+  }
+}

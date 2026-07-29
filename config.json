@@ -1,0 +1,23 @@
+{
+  "exchange": "bybit",
+  "symbol": "XRP/USDT",
+  "timeframe": "1m",
+  "api_keys": {
+    "LIVE": "JCisHPDt8ZCkB4uWjD",
+    "DEMO": "EEBpfbiY9LcwxdDVoZ"
+  },
+  "api_secrets": {
+    "LIVE": "eOrXiPNKVSrUp7twXaFY0GaqE8M9icE2vJAS",
+    "DEMO": "yyxS9eVfc4bENYKrzVm3Clf3v4EDgv0RYV3p"
+  },
+  "api_key": "EEBpfbiY9LcwxdDVoZ",
+  "api_secret": "yyxS9eVfc4bENYKrzVm3Clf3v4EDgv0RYV3p",
+  "trade_mode": "DEMO",
+  "investment_mode": "CUMULATIVE",
+  "invest_usdt": 100.0,
+  "trading_enabled": true,
+  "bb_period": 11,
+  "bb_dev": 0.7,
+  "use_atr": false,
+  "atr_period": 2
+}

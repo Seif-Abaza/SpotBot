@@ -1,0 +1,28 @@
+{
+  "date": "2026-07-22",
+  "exchange": "bybit",
+  "mode": "DEMO",
+  "investment_mode": "FIXED",
+  "trades": [
+    {
+      "timestamp": "2026-07-22T07:48:54.381278+00:00",
+      "side": "buy",
+      "symbol": "HBAR/USDT",
+      "price": 0.06841017825344155,
+      "quantity": 7308.853927373683,
+      "value_usdt": 500.0,
+      "order_id": "2264676983533473024",
+      "pnl_usdt": null,
+      "pnl_pct": null,
+      "note": "BUY | amount=500.0000 USDT | real_order=True",
+      "mode": "DEMO"
+    }
+  ],
+  "summary": {
+    "total_trades": 1,
+    "buys": 1,
+    "sells": 0,
+    "realized_pnl_usdt": 0.0,
+    "realized_pnl_pct": 0.0
+  }
+}
