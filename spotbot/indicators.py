@@ -171,14 +171,14 @@ def fli_compute_all_indicators(df: "pd.DataFrame", params: dict) -> "pd.DataFram
     obv_sell_ok = df["obv"] < df["obv_sma"]
 
     df["score_buy"] = (
-        (use_cci and cci_buy_ok).astype(int)
-        + (use_adx and adx_ok).astype(int)
-        + (use_obv and obv_buy_ok).astype(int)
+        (cci_buy_ok * int(use_cci)).astype(int)
+        + (adx_ok * int(use_adx)).astype(int)
+        + (obv_buy_ok * int(use_obv)).astype(int)
     )
     df["score_sell"] = (
-        (use_cci and cci_sell_ok).astype(int)
-        + (use_adx and adx_ok).astype(int)
-        + (use_obv and obv_sell_ok).astype(int)
+        (cci_sell_ok * int(use_cci)).astype(int)
+        + (adx_ok * int(use_adx)).astype(int)
+        + (obv_sell_ok * int(use_obv)).astype(int)
     )
 
     min_score = params.get("min_score", FLI_MIN_SCORE)
