@@ -98,6 +98,7 @@ from spotbot.workers import (
     PairLoaderWorker,
     ParallelPipeline,
     ProcessWorker,
+    SimCandleProcessWorker,
     SimulationWorker,
     WalletBuyWorker,
     WebSocketWorker,
@@ -205,6 +206,8 @@ class MainWindow(QWidget):
         # ── Simulation mode state ──
         self._simulation_active: bool = False
         self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
+        self._sim_process_workers: dict[str, SimCandleProcessWorker] = {}  # pair → process worker
+        self._sim_processing: dict[str, bool] = {}  # pair → is processing?
         self._sim_base_price: float = 0.05
 
         self._fli_params = {
@@ -948,11 +951,16 @@ class MainWindow(QWidget):
             for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
                       self.lblSimPrice, self.dsbSimPrice):
                 w.setVisible(False)
-            # Stop all simulation workers
+            # Stop all simulation workers + process workers
             for pair, worker in list(self._sim_workers.items()):
                 if worker.isRunning():
                     worker.stop()
             self._sim_workers.clear()
+            for pair, worker in list(self._sim_process_workers.items()):
+                if worker.isRunning():
+                    worker.stop()
+            self._sim_process_workers.clear()
+            self._sim_processing.clear()
             # Resume normal refresh if connected
             if self._is_connected and self._sessions:
                 self._refresh_timer.start()
@@ -1012,17 +1020,22 @@ class MainWindow(QWidget):
     def _on_sim_candle_update(self, pair: str, candle: list):
         """Handle a single new candle from the simulation worker.
 
-        Appends the candle to the pair's history and runs the same
-        indicator + trading logic as a real-time refresh.
+        Appends the candle to the pair's history and kicks off a
+        **background** SimCandleProcessWorker so the main thread never
+        blocks on indicator computation or signal evaluation.
+
+        If the previous candle's processing hasn't finished yet, the
+        new candle is still appended (so history stays accurate) but
+        the indicator/chart refresh is skipped — this prevents a
+        backlog of slow workers at very high simulation speeds.
         """
         session = self._sessions.get(pair)
         if not session:
             return
 
-        # Append candle to existing history
+        # ── Append candle to existing history (main thread, fast) ──
         candles = session.candles
         if candles:
-            # Replace the last candle (in-progress) or append
             last_ts = candles[-1][0]
             if candle[0] == last_ts:
                 candles[-1] = candle
@@ -1036,53 +1049,78 @@ class MainWindow(QWidget):
             candles = candles[-1000:]
         session.candles = candles
         self._pair_candles[pair] = candles
-
-        # Update balance (simulated)
         session.update_balance(10_000.0)
 
-        # ── Run the same indicator + trading logic as _on_data_fetched ──
-        indicators = IndicatorEngine.compute_all_indicators(candles)
+        # ── Guard: skip if previous processing still in flight ──
+        if self._sim_processing.get(pair, False):
+            return
+
+        # ── Stop any previous process worker for this pair ──
+        old_pw = self._sim_process_workers.get(pair)
+        if old_pw and old_pw.isRunning():
+            old_pw.stop()
+
+        self._sim_processing[pair] = True
+
+        worker = SimCandleProcessWorker(
+            pair=pair,
+            candles=list(candles),
+            trading_engine=session.engine,
+            balance=10_000.0,
+            markers=self._pair_markers.get(pair, []),
+            timeframe=session.timeframe,
+            parent=self,
+        )
+        worker.process_done.connect(self._on_sim_process_done)
+        worker.process_error.connect(
+            lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}")
+        )
+        self._sim_process_workers[pair] = worker
+        worker.start()
+
+    @Slot(str, dict)
+    def _on_sim_process_done(self, pair: str, enriched: dict):
+        """Called when SimCandleProcessWorker finishes indicator + signal
+        computation.  Runs on the main thread but only does lightweight
+        chart JS calls — no heavy TA-Lib work.
+        """
+        self._sim_processing[pair] = False
+
+        session = self._sessions.get(pair)
+        if not session:
+            return
+
+        # Store indicators
+        indicators = enriched.get("indicators", {})
         session.indicators = indicators
 
-        try:
-            if len(candles) >= 2:
-                r = session.engine.evaluate_signal(indicators, candles[-1], candles)
-                if r and r.get("action") in (
-                    "buy", "sell", "pending", "hold", "skipped", "rejected",
-                ):
-                    action = r["action"]
-                    note = r.get("note", "")
-                    self._set_status(f"{pair} {action.upper()}: {note}")
-                    if action == "pending":
-                        self._add_pending_marker(pair, r, candles[-1])
-                        signal_side = "buy" if "buy" in r.get("signal", "") else "sell"
-                        try:
-                            sig_price = float(r.get("price", candles[-1][4]) or 0)
-                        except (TypeError, ValueError):
-                            sig_price = 0.0
-                        self._safe_notify(
-                            "notify_signal", side=signal_side,
-                            symbol=pair, price=sig_price,
-                        )
-                    elif action in ("buy", "sell"):
-                        self._consume_pending_marker(pair, r)
-                        if r.get("trade"):
-                            self._on_trade_done(pair, r)
-                    elif action == "rejected":
-                        self._consume_pending_marker(pair, r)
-        except Exception as e:
-            self._set_status(f"⚠️ {pair} sim signal eval: {e}")
+        # ── Handle trading signal result (came from the worker thread) ──
+        signal_result = enriched.get("signal_result")
+        if signal_result and signal_result.get("action") in (
+            "buy", "sell", "pending", "hold", "skipped", "rejected",
+        ):
+            action = signal_result["action"]
+            note = signal_result.get("note", "")
+            self._set_status(f"{pair} {action.upper()}: {note}")
+            if action == "pending":
+                self._add_pending_marker(pair, signal_result, enriched["candles"][-1])
+                signal_side = "buy" if "buy" in signal_result.get("signal", "") else "sell"
+                try:
+                    sig_price = float(signal_result.get("price", enriched["candles"][-1][4]) or 0)
+                except (TypeError, ValueError):
+                    sig_price = 0.0
+                self._safe_notify(
+                    "notify_signal", side=signal_side,
+                    symbol=pair, price=sig_price,
+                )
+            elif action in ("buy", "sell"):
+                self._consume_pending_marker(pair, signal_result)
+                if signal_result.get("trade"):
+                    self._on_trade_done(pair, signal_result)
+            elif action == "rejected":
+                self._consume_pending_marker(pair, signal_result)
 
-        # ── Update chart incrementally ──
-        enriched = {
-            "candles": candles,
-            "fli_data": None,
-            "indicators": indicators,
-            "balance": 10_000.0,
-            "markers": self._pair_markers.get(pair, []),
-            "pair": pair,
-            "timeframe": session.timeframe,
-        }
+        # ── Update chart (lightweight — just JS calls) ──
         self._on_chart_ready(pair, enriched)
 
     @staticmethod
@@ -2149,6 +2187,10 @@ class MainWindow(QWidget):
         sim_worker = self._sim_workers.pop(pair, None)
         if sim_worker and sim_worker.isRunning():
             sim_worker.stop()
+        sim_pw = self._sim_process_workers.pop(pair, None)
+        if sim_pw and sim_pw.isRunning():
+            sim_pw.stop()
+        self._sim_processing.pop(pair, None)
         if session and session.pipeline:
             session.pipeline.stop()
             session.pipeline.wait(2000)

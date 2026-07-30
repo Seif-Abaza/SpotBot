@@ -710,3 +710,81 @@ class SimulationWorker(QThread):
         self._running = False
         self.quit()
         self.wait(3000)
+
+
+class SimCandleProcessWorker(QThread):
+    """QThread: offloads indicator computation + trading signal evaluation
+    for simulation candle updates.
+
+    Without this worker, every simulated candle triggers
+    ``IndicatorEngine.compute_all_indicators`` + ``evaluate_signal`` on the
+    **main thread**, which freezes the UI at high simulation speeds.
+
+    This worker runs all heavy computation in the background and emits a
+    ready-to-use ``enriched`` dict that the main thread can push to the
+    chart with minimal work (a single JS call).
+    """
+    process_done = Signal(str, dict)   # pair, enriched_data
+    process_error = Signal(str, str)   # pair, error_message
+
+    def __init__(
+        self,
+        pair: str,
+        candles: list,
+        trading_engine: "TradingEngine",
+        balance: float = 10_000.0,
+        markers: list | None = None,
+        timeframe: str = "5m",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.pair = pair
+        self.candles = candles
+        self.trading_engine = trading_engine
+        self.balance = balance
+        self.markers = markers or []
+        self.timeframe = timeframe
+        self._running = True
+
+    def run(self):
+        if not self._running:
+            return
+        try:
+            # 1. Compute indicators (the heaviest part — TA-Lib calls)
+            indicators = IndicatorEngine.compute_all_indicators(self.candles)
+            if not self._running:
+                return
+
+            # 2. Evaluate trading signal
+            signal_result = None
+            if len(self.candles) >= 2:
+                try:
+                    signal_result = self.trading_engine.evaluate_signal(
+                        indicators, self.candles[-1], self.candles
+                    )
+                except Exception:
+                    pass  # Non-fatal: chart still updates
+            if not self._running:
+                return
+
+            # 3. Build the enriched dict (same shape _on_chart_ready expects)
+            enriched = {
+                "candles": self.candles,
+                "fli_data": None,
+                "indicators": indicators,
+                "balance": self.balance,
+                "markers": self.markers,
+                "pair": self.pair,
+                "timeframe": self.timeframe,
+                "signal_result": signal_result,  # extra: for main thread to handle
+            }
+            self.process_done.emit(self.pair, enriched)
+
+        except Exception as e:
+            if self._running:
+                self.process_error.emit(self.pair, str(e))
+
+    def stop(self):
+        self._running = False
+        self.quit()
+        self.wait(3000)
