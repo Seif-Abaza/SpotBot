@@ -972,16 +972,13 @@ class MainWindow(QWidget):
             "run normally — only the data source is mocked.\n\n"
             "No real orders are placed during simulation."
         )
-        self.btnSimulation.setStyleSheet(
-            self.btnSimulation.styleSheet()
-            + """
-            QPushButton:checked {
-                background-color: #2962ff;
-                color: white;
-                border: 1px solid #2962ff;
-            }
-            """
-        )
+        # self.btnSimulation.setStyleSheet(self.btnSimulation.styleSheet() + """
+        #     QPushButton:checked {
+        #         background-color: #2962ff;
+        #         color: white;
+        #         border: 1px solid #2962ff;
+        #     }
+        #     """)
         self.btnSimulation.toggled.connect(self._on_simulation_toggled)
 
         # ── Speed slider ──
@@ -989,9 +986,9 @@ class MainWindow(QWidget):
         self.lblSimSpeed.setStyleSheet("color:#aaa; font-size:11px;")
         self.sliderSimSpeed = QSlider(Qt.Orientation.Horizontal)
         self.sliderSimSpeed.setFixedWidth(120)
-        self.sliderSimSpeed.setMinimum(1)       # 50 ms  (very fast)
-        self.sliderSimSpeed.setMaximum(10)      # 5000 ms (slow)
-        self.sliderSimSpeed.setValue(5)         # ~500 ms (default)
+        self.sliderSimSpeed.setMinimum(1)  # 50 ms  (very fast)
+        self.sliderSimSpeed.setMaximum(10)  # 5000 ms (slow)
+        self.sliderSimSpeed.setValue(5)  # ~500 ms (default)
         self.sliderSimSpeed.setToolTip(
             "Candle generation speed.\n"
             "Left = very fast (50 ms/candle)\n"
@@ -1032,14 +1029,19 @@ class MainWindow(QWidget):
                     lay.insertWidget(idx + 6, self.dsbSimPrice)
 
         # Initially hide speed/price controls (only visible when simulation active)
-        for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
-                  self.lblSimPrice, self.dsbSimPrice):
+        for w in (
+            self.lblSimSpeed,
+            self.sliderSimSpeed,
+            self.lblSimSpeedVal,
+            self.lblSimPrice,
+            self.dsbSimPrice,
+        ):
             w.setVisible(False)
 
     def _sim_interval_from_slider(self, value: int) -> int:
         """Map slider value (1-10) to interval in ms."""
         # Exponential mapping: 1→50ms, 5→500ms, 10→5000ms
-        return int(50 * (10 ** ((value - 1) / 9.0 * 2)))
+        return int(50 * (100 ** ((value - 1) / 9.0 * 2)))
 
     @Slot(int)
     def _on_sim_speed_changed(self, value: int):
@@ -1062,8 +1064,13 @@ class MainWindow(QWidget):
             self.btnSimulation.setText("🎮 Simulating…")
             self._set_status("🎮 Simulation mode ON — generating realistic candles")
             # Show speed/price controls
-            for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
-                      self.lblSimPrice, self.dsbSimPrice):
+            for w in (
+                self.lblSimSpeed,
+                self.sliderSimSpeed,
+                self.lblSimSpeedVal,
+                self.lblSimPrice,
+                self.dsbSimPrice,
+            ):
                 w.setVisible(True)
             # Stop the normal refresh timer (we'll get candles from sim workers)
             self._refresh_timer.stop()
@@ -1074,8 +1081,13 @@ class MainWindow(QWidget):
             self.btnSimulation.setText("🎮 Simulate")
             self._set_status("🎮 Simulation mode OFF — back to live data")
             # Hide speed/price controls
-            for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
-                      self.lblSimPrice, self.dsbSimPrice):
+            for w in (
+                self.lblSimSpeed,
+                self.sliderSimSpeed,
+                self.lblSimSpeedVal,
+                self.lblSimPrice,
+                self.dsbSimPrice,
+            ):
                 w.setVisible(False)
             # Stop all simulation workers + process workers
             for pair, worker in list(self._sim_workers.items()):
@@ -1111,9 +1123,7 @@ class MainWindow(QWidget):
         worker.set_interval(ms)
 
         worker.history_ready.connect(self._on_sim_history_ready)
-        worker.candle_update.connect(
-            lambda c, p=pair: self._on_sim_candle_update(p, c)
-        )
+        worker.candle_update.connect(lambda c, p=pair: self._on_sim_candle_update(p, c))
         worker.sim_status.connect(self._set_status)
         worker.sim_error.connect(lambda m: self._set_status(f"⚠️ [Sim] {m}"))
 
@@ -1138,9 +1148,7 @@ class MainWindow(QWidget):
         }
         # Feed into the standard pipeline
         self._on_data_fetched(pair, data)
-        self._set_status(
-            f"🎮 [Sim] {pair}: {len(candles)} history candles loaded"
-        )
+        self._set_status(f"🎮 [Sim] {pair}: {len(candles)} history candles loaded")
 
     @Slot(str, list)
     def _on_sim_candle_update(self, pair: str, candle: list):

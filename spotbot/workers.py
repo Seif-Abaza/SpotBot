@@ -697,7 +697,7 @@ class SimulationWorker(QThread):
         # ── Phase 2: stream new candles at configured interval ──
         while self._running:
             if self._paused:
-                self.msleep(100)
+                self.msleep(500)
                 continue
             try:
                 candle = sim.next_candle()

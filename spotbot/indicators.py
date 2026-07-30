@@ -541,7 +541,7 @@ def _make_combined_strategy_class():
                 lambda x: x, self.data.HullMA_Shifted, name='HullMA_Shifted')
 
             # MOM thresholds
-            self.up_zone = 0.00639
+            self.up_zone = 0.00354
             self.middle_zone = 0.00001
             self.down_zone = -0.006660
 
