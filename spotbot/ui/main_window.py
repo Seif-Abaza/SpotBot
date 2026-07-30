@@ -181,7 +181,7 @@ class MainWindow(QWidget):
         # ── Best timeframe worker (single, for active pair) ──
         self._best_tf_worker: BestTimeframeWorker | None = None
         # ── Track which pairs have backtest enabled ──
-        self._pair_backtest_enabled: dict[str, bool] = {}
+        # _pair_backtest_enabled removed — backtest is now manual only
         # ── Fix: track whether the REAL chart HTML (not about:blank) has
         #    been loaded for this pair.  The about:blank initial page also
         #    fires loadFinished, which would prematurely set
@@ -279,7 +279,7 @@ class MainWindow(QWidget):
         # ── Issue 4: Reset PnL records button ──
         self.ui.btnResetPnL.clicked.connect(self._on_reset_pnl)
         # ── Backtest checkbox + Best Timeframe button ──
-        self.ui.cbAutoBacktest.toggled.connect(self._on_auto_backtest_toggled)
+        self.ui.btnRunBacktest.clicked.connect(self._on_run_backtest_clicked)
         self.ui.btnBestTimeframe.clicked.connect(self._on_best_timeframe_clicked)
         # ── Indicator Parameters dialog ──
         self.ui.btnIndicatorParams.clicked.connect(self._on_indicator_params_clicked)
@@ -375,6 +375,7 @@ class MainWindow(QWidget):
             self._pair_markers[pair] = []
             self._pair_fli_df[pair] = None
             self._pair_backtest_markers[pair] = []
+            # NOTE: no auto-backtest — user clicks "Backtest" button
             self._pair_wallet_buy_markers[pair] = []
         return {
             "ready": self._pair_chart_ready[pair],
@@ -469,9 +470,8 @@ class MainWindow(QWidget):
         self._pair_fli_df[pair] = df
         self._set_fli_candles(pair, df)
         self._set_fli_lines(pair, df)
-        # ── Backtest: run FLI signal backtest on historical data (in QThread) ──
-        self._run_backtest_async(pair, df)
-        # ── Set trade markers (backtest markers are pushed by _run_backtest) ──
+        # ── Backtest is now manual only (user clicks "Backtest" button) ──
+        # ── Set trade markers ──
         self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []))
         self._update_fli_info_panel(pair, df.iloc[-1])
         self._refresh_fli_trade_panel(pair)
@@ -560,17 +560,8 @@ class MainWindow(QWidget):
     def _run_backtest_async(self, pair: str, df):
         """Run backtest in a QThread to prevent UI freezing.
 
-        Respects the auto-backtest checkbox: if unchecked, skip backtest
-        entirely and hide the backtest panel on the chart.
+        Called only when the user clicks the "Backtest" button.
         """
-        if not self.ui.cbAutoBacktest.isChecked():
-            self._pair_backtest_enabled[pair] = False
-            # Hide backtest panel on chart
-            self._chart_js(pair, "updateBacktestStats(0,0,0,0,0,0,0,'');")
-            return
-
-        self._pair_backtest_enabled[pair] = True
-
         # Stop any existing backtest worker for this pair
         old = self._backtest_workers.get(pair)
         if old and old.isRunning():
@@ -782,13 +773,18 @@ class MainWindow(QWidget):
             f"{pair}: found {len(chart_markers)} buy trades, avg entry {avg_price:.6f}"
         )
 
-    def _on_auto_backtest_toggled(self, checked: bool):
-        """Handle auto-backtest checkbox toggle."""
-        self._set_status(f"Auto Backtest {'enabled' if checked else 'disabled'}")
-        # If disabled, clear backtest panels for all pairs
-        if not checked:
-            for pair in list(self._pair_backtest_markers.keys()):
-                self._chart_js(pair, "updateBacktestStats(0,0,0,0,0,0,0,'');")
+    def _on_run_backtest_clicked(self):
+        """Handle manual Backtest button click — run backtest on active pair."""
+        pair = self._active_pair()
+        if not pair:
+            self._set_status("⚠️ No active tab — open a coin tab first")
+            return
+        df = self._pair_fli_df.get(pair)
+        if df is None or getattr(df, "empty", True):
+            self._set_status(f"⚠️ No FLI data for {pair} — wait for chart to load")
+            return
+        self._set_status(f"Running backtest for {pair}…")
+        self._run_backtest_async(pair, df)
 
     def _on_best_timeframe_clicked(self):
         """Start the best-timeframe optimization for the active pair."""
@@ -958,12 +954,7 @@ class MainWindow(QWidget):
             if candles:
                 self._load_historical_chart(pair)
 
-        # Re-run backtest for all tabs that have auto-backtest enabled
-        for pair, enabled in list(self._pair_backtest_enabled.items()):
-            if enabled:
-                df = self._pair_fli_df.get(pair)
-                if df is not None and not df.empty:
-                    self._run_backtest_async(pair, df)
+        # Backtest is now manual — no auto re-run on parameter change
 
     # ─────────────────────────────────────────────────────────────────────
     # Simulation Mode — realistic candle generator for fast testing
@@ -2378,7 +2369,6 @@ class MainWindow(QWidget):
         self._pair_pending_ts.pop(pair, None)
         self._pair_backtest_markers.pop(pair, None)
         self._pair_wallet_buy_markers.pop(pair, None)
-        self._pair_backtest_enabled.pop(pair, None)
         # ── Clean up simulation worker for this pair ──
         sim_worker = self._sim_workers.pop(pair, None)
         if sim_worker and sim_worker.isRunning():

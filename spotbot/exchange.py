@@ -226,9 +226,11 @@ class ExchangeManager:
     def disconnect(self):
         if self.exchange:
             try:
-                self.exchange.close()
+                if hasattr(self.exchange, 'close'):
+                    self.exchange.close()
             except Exception as e:
                 print(f"[disconnect] exchange.close failed: {e}")
+            self.exchange = None
         if self.ws_exchange:
             try:
                 loop = asyncio.new_event_loop()
@@ -236,8 +238,7 @@ class ExchangeManager:
                 loop.close()
             except Exception as e:
                 print(f"[disconnect] ws_exchange.close failed: {e}")
-        self.exchange = None
-        self.ws_exchange = None
+            self.ws_exchange = None
 
     def fetch_other_coin(self, balance_in_wallet):
         coin_free_wallet = []

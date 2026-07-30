@@ -143,15 +143,15 @@ class ResizableUI:
             row_tf.addWidget(rb)
         tl.addLayout(row_tf)
 
-        # ── Backtest checkbox + Best Timeframe button ──
-        self.cbAutoBacktest = QCheckBox("Auto Backtest on Add")
-        self.cbAutoBacktest.setObjectName("cbAutoBacktest")
-        self.cbAutoBacktest.setChecked(True)
-        self.cbAutoBacktest.setToolTip(
-            "When checked: automatically run FLI backtest when a coin tab is opened.\n"
-            "When unchecked: no backtest runs and the Backtest panel is hidden."
+        # ── Backtest button (manual, not auto) + Best Timeframe button ──
+        self.btnRunBacktest = QPushButton("📊 Backtest")
+        self.btnRunBacktest.setObjectName("btnRunBacktest")
+        self.btnRunBacktest.setMinimumHeight(34)
+        self.btnRunBacktest.setToolTip(
+            "Run FLI backtest on the active coin's current data.\n"
+            "Displays trade markers, Buy→Sell lines, and statistics."
         )
-        tl.addWidget(self.cbAutoBacktest)
+        tl.addWidget(self.btnRunBacktest)
 
         self.btnBestTimeframe = QPushButton("🔍 Best Timeframe")
         self.btnBestTimeframe.setObjectName("btnBestTimeframe")
