@@ -6,6 +6,9 @@
 .idea/
 *.swp
 *.swo
+*.mp3
+*.wav
+SFX/
 data/
 
 # Python cache
