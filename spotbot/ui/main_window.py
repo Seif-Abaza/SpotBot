@@ -625,9 +625,6 @@ class MainWindow(QWidget):
             f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
         )
 
-        # ── Build trade lines (Buy→Sell pairs) ──
-        self._push_backtest_trade_lines(pair, markers)
-
         # Update backtest stats panel (with equity and duration)
         eq_final = stats.get("equity_final", 0) if stats else 0
         eq_peak = stats.get("equity_peak", 0) if stats else 0
@@ -651,64 +648,6 @@ class MainWindow(QWidget):
                 f"win rate {win_rate:.1f}%, "
                 f"Equity Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
             )
-
-    def _push_backtest_trade_lines(self, pair: str, markers: list):
-        """Pair bt_buy → bt_sell markers into trade segments and draw
-        colored lines on the chart connecting entry to exit.
-
-        Green line = profitable trade, Red line = losing trade.
-        """
-        import math as _math
-
-        # Separate buys and sells, sorted by time
-        buys = [m for m in markers if m.get("action") == "bt_buy"]
-        sells = [m for m in markers if m.get("action") == "bt_sell"]
-        buys.sort(key=lambda x: x["time"])
-        sells.sort(key=lambda x: x["time"])
-
-        # Pair them: first buy → first sell, second buy → second sell, etc.
-        trades = []
-        pair_count = min(len(buys), len(sells))
-        for i in range(pair_count):
-            entry = buys[i]
-            exit_ = sells[i]
-
-            # Validate times
-            entry_time = _to_chart_time(entry["time"])
-            exit_time = _to_chart_time(exit_["time"])
-            if entry_time is None or exit_time is None:
-                continue
-
-            # Validate prices — skip if 0, NaN, or infinity
-            try:
-                entry_price = float(entry.get("price", 0))
-                exit_price = float(exit_.get("price", 0))
-            except (TypeError, ValueError):
-                continue
-            if entry_price <= 0 or exit_price <= 0:
-                continue
-            if _math.isnan(entry_price) or _math.isnan(exit_price):
-                continue
-            if _math.isinf(entry_price) or _math.isinf(exit_price):
-                continue
-
-            pnl = exit_price - entry_price  # positive = profit
-            trades.append(
-                {
-                    "entryTime": entry_time,
-                    "exitTime": exit_time,
-                    "entryPrice": entry_price,
-                    "exitPrice": exit_price,
-                    "pnl": pnl,
-                }
-            )
-
-        # Wrap in try-catch so a JS error doesn't break the chart
-        self._chart_js(
-            pair,
-            f"try {{ setBacktestTradeLines({json.dumps(trades)}); }}"
-            f"catch(e) {{ console.warn('trade lines error:', e.message, e.stack); }}",
-        )
 
     def _fetch_and_mark_wallet_buys_async(self, pair: str):
         """Fetch wallet buy trades in a QThread to prevent UI freezing."""

@@ -597,64 +597,6 @@ function setBacktestMarkers(btMarkers){
   _mergeMarkers();
 }
 
-/* ── Backtest trade lines (Buy→Sell connections) ── */
-var _btTradeLines=[];
-var _btLinesScaleCreated=false;
-function clearBacktestTradeLines(){
-  for(var i=0;i<_btTradeLines.length;i++){
-    try{fliChart.removeSeries(_btTradeLines[i]);}catch(e){}
-  }
-  _btTradeLines=[];
-}
-function setBacktestTradeLines(trades){
-  /* trades: [{entryTime, exitTime, entryPrice, exitPrice, pnl}, …]
-     Draws a colored line from entry→exit for each trade.
-     Green = profit, Red = loss.
-
-     Uses a separate invisible price scale so the trade lines
-     do NOT interfere with the candlestick auto-scaling. */
-  clearBacktestTradeLines();
-  if(!trades||!trades.length)return;
-
-  /* Create a separate overlay price scale (invisible) for trade lines.
-     This prevents the auto-scaler from expanding to fit the trade
-     line data, which would squeeze the candles to invisibility. */
-  if(!_btLinesScaleCreated){
-    try {
-      fliChart.priceScale('bt_lines').applyOptions({
-        scaleMargins: { top: 0.1, bottom: 0.1 },
-        visible: false,
-      });
-      _btLinesScaleCreated = true;
-    } catch(e) {}
-  }
-
-  for(var i=0;i<trades.length;i++){
-    var t=trades[i];
-    if(t.entryTime==null||t.exitTime==null)continue;
-    if(t.entryPrice==null||t.exitPrice==null)continue;
-    if(isNaN(t.entryPrice)||isNaN(t.exitPrice))continue;
-    if(t.entryPrice<=0||t.exitPrice<=0)continue;
-    var isProfit=t.pnl>=0;
-    var lineColor=isProfit?'rgba(14,203,129,0.6)':'rgba(246,70,93,0.6)';
-    var lineW=2;
-    var s=fliChart.addLineSeries({
-      color:lineColor,
-      lineWidth:lineW,
-      lineStyle:0,
-      priceLineVisible:false,
-      lastValueVisible:false,
-      crosshairMarkerVisible:false,
-      priceScaleId:'bt_lines',
-    });
-    s.setData([
-      {time:t.entryTime, value:t.entryPrice},
-      {time:t.exitTime,  value:t.exitPrice}
-    ]);
-    _btTradeLines.push(s);
-  }
-}
-
 function setWalletBuyMarkers(markers){
   _walletBuyMarkers=markers.slice();
   _mergeMarkers();
@@ -672,7 +614,6 @@ function clearAll(){
   fliCandles.setData([]);
   fliBull.setData([]);fliBear.setData([]);fliNeutral.setData([]);
   fliBBUpper.setData([]);fliBBLower.setData([]);
-  clearBacktestTradeLines();
   _allMarkers=[];fliCandles.setMarkers([]);
 }
 function fitContent(){fliChart.timeScale().fitContent();}
