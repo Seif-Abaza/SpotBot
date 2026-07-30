@@ -98,6 +98,7 @@ from spotbot.workers import (
     PairLoaderWorker,
     ParallelPipeline,
     ProcessWorker,
+    SimulationWorker,
     WalletBuyWorker,
     WebSocketWorker,
 )
@@ -200,6 +201,12 @@ class MainWindow(QWidget):
         # confirmed the LIVE-trading warning dialog — lets the next
         # _on_start_trading_toggled(True) call skip the dialog.
         self._live_confirmed: bool = False
+
+        # ── Simulation mode state ──
+        self._simulation_active: bool = False
+        self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
+        self._sim_base_price: float = 0.05
+
         self._fli_params = {
             "bb_period": FLI_BB_PERIOD,
             "bb_dev": FLI_BB_DEV,
@@ -219,6 +226,7 @@ class MainWindow(QWidget):
 
         self._load_exchanges()
         self._connect_signals()
+        self._setup_simulation_ui()
         self.ui.tabWidget.tabCloseRequested.connect(self._on_tab_close)
 
     # ── Load exchanges from ccxt ──
@@ -816,6 +824,266 @@ class MainWindow(QWidget):
         self._set_status(f"⚠️ [BestTF] {pair}: {msg}")
         self._set_status(f"Error: {msg}")
         # self.ui.lblTfBacktestStatus.setVisible(True)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Simulation Mode — realistic candle generator for fast testing
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _setup_simulation_ui(self):
+        """Create the Simulation toggle button and speed slider, inserting
+        them into the existing toolbar layout next to the Connect button."""
+        # ── Simulation toggle button ──
+        self.btnSimulation = QPushButton("🎮 Simulate")
+        self.btnSimulation.setCheckable(True)
+        self.btnSimulation.setToolTip(
+            "Toggle chart simulation mode.\n\n"
+            "When active, generates realistic fake candles locally\n"
+            "instead of fetching from the exchange.\n\n"
+            "All indicators, trading signals, markers, and backtest\n"
+            "run normally — only the data source is mocked.\n\n"
+            "No real orders are placed during simulation."
+        )
+        self.btnSimulation.setStyleSheet(
+            self.btnSimulation.styleSheet()
+            + """
+            QPushButton:checked {
+                background-color: #2962ff;
+                color: white;
+                border: 1px solid #2962ff;
+            }
+            """
+        )
+        self.btnSimulation.toggled.connect(self._on_simulation_toggled)
+
+        # ── Speed slider ──
+        self.lblSimSpeed = QLabel(" Speed:")
+        self.lblSimSpeed.setStyleSheet("color:#aaa; font-size:11px;")
+        self.sliderSimSpeed = QSlider(Qt.Orientation.Horizontal)
+        self.sliderSimSpeed.setFixedWidth(120)
+        self.sliderSimSpeed.setMinimum(1)       # 50 ms  (very fast)
+        self.sliderSimSpeed.setMaximum(10)      # 5000 ms (slow)
+        self.sliderSimSpeed.setValue(5)         # ~500 ms (default)
+        self.sliderSimSpeed.setToolTip(
+            "Candle generation speed.\n"
+            "Left = very fast (50 ms/candle)\n"
+            "Right = slow (5000 ms/candle)"
+        )
+        self.sliderSimSpeed.valueChanged.connect(self._on_sim_speed_changed)
+        self.lblSimSpeedVal = QLabel("500ms")
+        self.lblSimSpeedVal.setStyleSheet("color:#aaa; font-size:10px;")
+        self.lblSimSpeedVal.setFixedWidth(45)
+
+        # ── Base price spinbox ──
+        self.lblSimPrice = QLabel(" Price:")
+        self.lblSimPrice.setStyleSheet("color:#aaa; font-size:11px;")
+        self.dsbSimPrice = QDoubleSpinBox()
+        self.dsbSimPrice.setDecimals(4)
+        self.dsbSimPrice.setRange(0.0001, 999999.0)
+        self.dsbSimPrice.setValue(0.05)
+        self.dsbSimPrice.setSingleStep(0.01)
+        self.dsbSimPrice.setFixedWidth(90)
+        self.dsbSimPrice.setToolTip("Base price for the simulated candles")
+        self.dsbSimPrice.valueChanged.connect(self._on_sim_price_changed)
+
+        # Insert into the toolbar — find the Connect button's parent layout
+        btn_connect = self.ui.btnConnDissconExchange
+        parent = btn_connect.parentWidget()
+        if parent and isinstance(parent, QWidget):
+            # Find the button's index in its layout
+            lay = parent.layout()
+            if lay:
+                idx = lay.indexOf(btn_connect)
+                if idx >= 0:
+                    # Insert: [Simulate] [Speed: ====o====] [500ms] [Price: [0.0500]]
+                    lay.insertWidget(idx + 1, self.btnSimulation)
+                    lay.insertWidget(idx + 2, self.lblSimSpeed)
+                    lay.insertWidget(idx + 3, self.sliderSimSpeed)
+                    lay.insertWidget(idx + 4, self.lblSimSpeedVal)
+                    lay.insertWidget(idx + 5, self.lblSimPrice)
+                    lay.insertWidget(idx + 6, self.dsbSimPrice)
+
+        # Initially hide speed/price controls (only visible when simulation active)
+        for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
+                  self.lblSimPrice, self.dsbSimPrice):
+            w.setVisible(False)
+
+    def _sim_interval_from_slider(self, value: int) -> int:
+        """Map slider value (1-10) to interval in ms."""
+        # Exponential mapping: 1→50ms, 5→500ms, 10→5000ms
+        return int(50 * (10 ** ((value - 1) / 9.0 * 2)))
+
+    @Slot(int)
+    def _on_sim_speed_changed(self, value: int):
+        ms = self._sim_interval_from_slider(value)
+        self.lblSimSpeedVal.setText(f"{ms}ms")
+        # Update all running sim workers
+        for pair, worker in self._sim_workers.items():
+            if worker.isRunning():
+                worker.set_interval(ms)
+
+    @Slot(float)
+    def _on_sim_price_changed(self, value: float):
+        self._sim_base_price = value
+
+    @Slot(bool)
+    def _on_simulation_toggled(self, checked: bool):
+        """Toggle simulation mode on/off."""
+        self._simulation_active = checked
+        if checked:
+            self.btnSimulation.setText("🎮 Simulating…")
+            self._set_status("🎮 Simulation mode ON — generating realistic candles")
+            # Show speed/price controls
+            for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
+                      self.lblSimPrice, self.dsbSimPrice):
+                w.setVisible(True)
+            # Stop the normal refresh timer (we'll get candles from sim workers)
+            self._refresh_timer.stop()
+            # Start simulation for all existing tabs
+            for pair in list(self._sessions.keys()):
+                self._start_simulation_for_pair(pair)
+        else:
+            self.btnSimulation.setText("🎮 Simulate")
+            self._set_status("🎮 Simulation mode OFF — back to live data")
+            # Hide speed/price controls
+            for w in (self.lblSimSpeed, self.sliderSimSpeed, self.lblSimSpeedVal,
+                      self.lblSimPrice, self.dsbSimPrice):
+                w.setVisible(False)
+            # Stop all simulation workers
+            for pair, worker in list(self._sim_workers.items()):
+                if worker.isRunning():
+                    worker.stop()
+            self._sim_workers.clear()
+            # Resume normal refresh if connected
+            if self._is_connected and self._sessions:
+                self._refresh_timer.start()
+
+    def _start_simulation_for_pair(self, pair: str):
+        """Start a SimulationWorker for the given pair."""
+        # Stop existing sim worker for this pair
+        old = self._sim_workers.get(pair)
+        if old and old.isRunning():
+            old.stop()
+
+        session = self._sessions.get(pair)
+        tf = session.timeframe if session else self._tf()
+
+        worker = SimulationWorker(
+            pair=pair,
+            base_price=self._sim_base_price,
+            timeframe=tf,
+            parent=self,
+        )
+        ms = self._sim_interval_from_slider(self.sliderSimSpeed.value())
+        worker.set_interval(ms)
+
+        worker.history_ready.connect(self._on_sim_history_ready)
+        worker.candle_update.connect(
+            lambda c, p=pair: self._on_sim_candle_update(p, c)
+        )
+        worker.sim_status.connect(self._set_status)
+        worker.sim_error.connect(lambda m: self._set_status(f"⚠️ [Sim] {m}"))
+
+        self._sim_workers[pair] = worker
+        worker.start()
+
+    @Slot(str, list, float)
+    def _on_sim_history_ready(self, pair: str, candles: list, balance: float):
+        """Handle initial simulation history batch.
+
+        Injects the history candles into the same data pipeline that
+        _on_data_fetched uses, so all indicators, FLI, chart, and
+        trading logic run unchanged.
+        """
+        if not candles:
+            return
+
+        # Build the same dict that DataFetchWorker emits
+        data = {
+            "candles": candles,
+            "balance": balance,
+        }
+        # Feed into the standard pipeline
+        self._on_data_fetched(pair, data)
+        self._set_status(
+            f"🎮 [Sim] {pair}: {len(candles)} history candles loaded"
+        )
+
+    @Slot(str, list)
+    def _on_sim_candle_update(self, pair: str, candle: list):
+        """Handle a single new candle from the simulation worker.
+
+        Appends the candle to the pair's history and runs the same
+        indicator + trading logic as a real-time refresh.
+        """
+        session = self._sessions.get(pair)
+        if not session:
+            return
+
+        # Append candle to existing history
+        candles = session.candles
+        if candles:
+            # Replace the last candle (in-progress) or append
+            last_ts = candles[-1][0]
+            if candle[0] == last_ts:
+                candles[-1] = candle
+            elif candle[0] > last_ts:
+                candles.append(candle)
+        else:
+            candles.append(candle)
+
+        # Keep max 1000 candles
+        if len(candles) > 1000:
+            candles = candles[-1000:]
+        session.candles = candles
+        self._pair_candles[pair] = candles
+
+        # Update balance (simulated)
+        session.update_balance(10_000.0)
+
+        # ── Run the same indicator + trading logic as _on_data_fetched ──
+        indicators = IndicatorEngine.compute_all_indicators(candles)
+        session.indicators = indicators
+
+        try:
+            if len(candles) >= 2:
+                r = session.engine.evaluate_signal(indicators, candles[-1], candles)
+                if r and r.get("action") in (
+                    "buy", "sell", "pending", "hold", "skipped", "rejected",
+                ):
+                    action = r["action"]
+                    note = r.get("note", "")
+                    self._set_status(f"{pair} {action.upper()}: {note}")
+                    if action == "pending":
+                        self._add_pending_marker(pair, r, candles[-1])
+                        signal_side = "buy" if "buy" in r.get("signal", "") else "sell"
+                        try:
+                            sig_price = float(r.get("price", candles[-1][4]) or 0)
+                        except (TypeError, ValueError):
+                            sig_price = 0.0
+                        self._safe_notify(
+                            "notify_signal", side=signal_side,
+                            symbol=pair, price=sig_price,
+                        )
+                    elif action in ("buy", "sell"):
+                        self._consume_pending_marker(pair, r)
+                        if r.get("trade"):
+                            self._on_trade_done(pair, r)
+                    elif action == "rejected":
+                        self._consume_pending_marker(pair, r)
+        except Exception as e:
+            self._set_status(f"⚠️ {pair} sim signal eval: {e}")
+
+        # ── Update chart incrementally ──
+        enriched = {
+            "candles": candles,
+            "fli_data": None,
+            "indicators": indicators,
+            "balance": 10_000.0,
+            "markers": self._pair_markers.get(pair, []),
+            "pair": pair,
+            "timeframe": session.timeframe,
+        }
+        self._on_chart_ready(pair, enriched)
 
     @staticmethod
     def _fli_ts(row_time):
@@ -1877,6 +2145,10 @@ class MainWindow(QWidget):
         self._pair_backtest_markers.pop(pair, None)
         self._pair_wallet_buy_markers.pop(pair, None)
         self._pair_backtest_enabled.pop(pair, None)
+        # ── Clean up simulation worker for this pair ──
+        sim_worker = self._sim_workers.pop(pair, None)
+        if sim_worker and sim_worker.isRunning():
+            sim_worker.stop()
         if session and session.pipeline:
             session.pipeline.stop()
             session.pipeline.wait(2000)
@@ -2379,6 +2651,9 @@ class MainWindow(QWidget):
         if self._best_tf_worker and self._best_tf_worker.isRunning():
             self._best_tf_worker.stop()
             self._best_tf_worker = None
+        # Stop simulation if active
+        if self._simulation_active:
+            self.btnSimulation.setChecked(False)
         for pair in list(self._sessions):
             self._halt_and_remove(pair)
         self.exch_mgr.disconnect()

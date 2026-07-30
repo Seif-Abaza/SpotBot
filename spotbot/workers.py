@@ -631,3 +631,82 @@ class ParallelPipeline(QThread):
     def stop(self):
         self.quit()
         self.wait(3000)
+
+
+class SimulationWorker(QThread):
+    """QThread: generates realistic candles via CandleSimulator and emits
+    them at a user-controllable speed.
+
+    Two phases:
+      1. **History** — emits a batch of historical candles (200+) so the
+         chart and indicators can be seeded immediately.
+      2. **Live** — emits one new candle every ``interval_ms`` milliseconds
+         (configurable via set_interval), simulating real-time streaming.
+
+    Signals mirror ``DataFetchWorker`` so the MainWindow can treat both
+    identically — only the data source differs.
+    """
+    # Emitted when the initial history batch is ready
+    history_ready = Signal(str, list, float)   # pair, candles, balance
+    # Emitted for each new candle (same shape as WebSocketWorker.candle_update)
+    candle_update = Signal(list)                 # [ts, o, h, l, c, v]
+    # Status / error
+    sim_status = Signal(str)
+    sim_error = Signal(str)
+
+    def __init__(self, pair: str, base_price: float, timeframe: str,
+                 parent=None):
+        super().__init__(parent)
+        self.pair = pair
+        self.base_price = base_price
+        self.timeframe = timeframe
+        self._interval_ms = 500        # default: new candle every 500 ms
+        self._running = True
+        self._paused = False
+
+    def set_interval(self, ms: int):
+        """Change the candle generation interval (speed control)."""
+        self._interval_ms = max(50, min(60_000, ms))
+
+    def pause(self):
+        self._paused = True
+
+    def resume(self):
+        self._paused = False
+
+    def run(self):
+        from spotbot.candle_simulator import CandleSimulator, TF_SECONDS
+
+        tf_sec = TF_SECONDS.get(self.timeframe, 180)
+        sim = CandleSimulator(
+            base_price=self.base_price,
+            timeframe_sec=tf_sec,
+        )
+
+        # ── Phase 1: generate and emit history ──
+        try:
+            history = sim.generate_history(count=200)
+            self.history_ready.emit(self.pair, history, 10_000.0)
+            self.sim_status.emit(
+                f"[Simulator] {self.pair}: {len(history)} history candles ready"
+            )
+        except Exception as e:
+            self.sim_error.emit(f"History generation failed: {e}")
+            return
+
+        # ── Phase 2: stream new candles at configured interval ──
+        while self._running:
+            if self._paused:
+                self.msleep(100)
+                continue
+            try:
+                candle = sim.next_candle()
+                self.candle_update.emit(candle)
+            except Exception as e:
+                self.sim_error.emit(f"Candle generation error: {e}")
+            self.msleep(self._interval_ms)
+
+    def stop(self):
+        self._running = False
+        self.quit()
+        self.wait(3000)
