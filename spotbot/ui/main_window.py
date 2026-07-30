@@ -207,7 +207,9 @@ class MainWindow(QWidget):
         # ── Simulation mode state ──
         self._simulation_active: bool = False
         self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
-        self._sim_process_workers: dict[str, SimCandleProcessWorker] = {}  # pair → process worker
+        self._sim_process_workers: dict[str, SimCandleProcessWorker] = (
+            {}
+        )  # pair → process worker
         self._sim_processing: dict[str, bool] = {}  # pair → is processing?
         self._sim_base_price: float = 0.05
 
@@ -349,17 +351,18 @@ class MainWindow(QWidget):
                 # the trading loop crashes for a UI/sound issue.
                 print(f"[NOTIFIER] _set_status also failed: {e2}")
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Per-pair chart state helpers
-    # ─────────────────────────────────────────────────────────────────────
-    # Code Review Critical #2: the previous _show_empty_chart() method here
-    # referenced ``self._chart_ready`` / ``self._chart_js_queue`` /
-    # ``self._chart_first_load`` — those are CoinTabWidget attributes, not
-    # MainWindow attributes.  MainWindow tracks chart state in the per-pair
-    # dicts (_pair_chart_ready, _pair_chart_js_queue, _pair_chart_first_load)
-    # initialized in __init__ via _pair_state().  The method was never called
-    # from anywhere in the codebase, so deleting it is safe and removes a
-    # latent AttributeError if it ever had been invoked.
+    # ──────────────────────────────────────────────────────────────────────────+
+    # Per-pair chart state helpers                                              |
+    # ──────────────────────────────────────────────────────────────────────────+
+    # Code Review Critical #2: the previous _show_empty_chart() method here     |
+    # referenced ``self._chart_ready`` / ``self._chart_js_queue`` /             |
+    # ``self._chart_first_load`` — those are CoinTabWidget attributes, not      |
+    # MainWindow attributes.  MainWindow tracks chart state in the per-pair     |
+    # dicts (_pair_chart_ready, _pair_chart_js_queue, _pair_chart_first_load)   |
+    # initialized in __init__ via _pair_state().  The method was never called   |
+    # from anywhere in the codebase, so deleting it is safe and removes a       |
+    # latent AttributeError if it ever had been invoked.                        |
+    # ───────────────────────────────────────────────────────────────────────────+
 
     def _pair_state(self, pair: str) -> dict:
         """Initialize (if needed) and return the per-pair chart state dict."""
@@ -392,7 +395,7 @@ class MainWindow(QWidget):
         tab = self._tabs.get(pair)
         if not tab:
             return
-        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e); }}"
+        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e, _e.stack); }}"
         if self._pair_chart_ready.get(pair, False):
             tab.chart_view.page().runJavaScript(safe_code)
         else:
@@ -500,7 +503,7 @@ class MainWindow(QWidget):
                 if ts is None:
                     continue
                 try:
-                    price = float(m.get('price', 0))
+                    price = float(m.get("price", 0))
                 except (TypeError, ValueError):
                     price = 0.0
                 if action == "bt_buy":
@@ -528,7 +531,7 @@ class MainWindow(QWidget):
             self._chart_js(
                 pair,
                 f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
-                f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+                f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
             )
             # Update backtest stats panel
             self._chart_js(
@@ -600,7 +603,7 @@ class MainWindow(QWidget):
             if ts is None:
                 continue
             try:
-                price = float(m.get('price', 0))
+                price = float(m.get("price", 0))
             except (TypeError, ValueError):
                 price = 0.0
             if action == "bt_buy":
@@ -628,7 +631,7 @@ class MainWindow(QWidget):
         self._chart_js(
             pair,
             f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
-            f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+            f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
         )
 
         # ── Build trade lines (Buy→Sell pairs) ──
@@ -699,19 +702,21 @@ class MainWindow(QWidget):
                 continue
 
             pnl = exit_price - entry_price  # positive = profit
-            trades.append({
-                "entryTime": entry_time,
-                "exitTime": exit_time,
-                "entryPrice": entry_price,
-                "exitPrice": exit_price,
-                "pnl": pnl,
-            })
+            trades.append(
+                {
+                    "entryTime": entry_time,
+                    "exitTime": exit_time,
+                    "entryPrice": entry_price,
+                    "exitPrice": exit_price,
+                    "pnl": pnl,
+                }
+            )
 
         # Wrap in try-catch so a JS error doesn't break the chart
         self._chart_js(
             pair,
             f"try {{ setBacktestTradeLines({json.dumps(trades)}); }}"
-            f"catch(e) {{ console.warn('trade lines error:', e.message); }}",
+            f"catch(e) {{ console.warn('trade lines error:', e.message, e.stack); }}",
         )
 
     def _fetch_and_mark_wallet_buys_async(self, pair: str):
@@ -1237,21 +1242,32 @@ class MainWindow(QWidget):
         # ── Handle trading signal result (came from the worker thread) ──
         signal_result = enriched.get("signal_result")
         if signal_result and signal_result.get("action") in (
-            "buy", "sell", "pending", "hold", "skipped", "rejected",
+            "buy",
+            "sell",
+            "pending",
+            "hold",
+            "skipped",
+            "rejected",
         ):
             action = signal_result["action"]
             note = signal_result.get("note", "")
             self._set_status(f"{pair} {action.upper()}: {note}")
             if action == "pending":
                 self._add_pending_marker(pair, signal_result, enriched["candles"][-1])
-                signal_side = "buy" if "buy" in signal_result.get("signal", "") else "sell"
+                signal_side = (
+                    "buy" if "buy" in signal_result.get("signal", "") else "sell"
+                )
                 try:
-                    sig_price = float(signal_result.get("price", enriched["candles"][-1][4]) or 0)
+                    sig_price = float(
+                        signal_result.get("price", enriched["candles"][-1][4]) or 0
+                    )
                 except (TypeError, ValueError):
                     sig_price = 0.0
                 self._safe_notify(
-                    "notify_signal", side=signal_side,
-                    symbol=pair, price=sig_price,
+                    "notify_signal",
+                    side=signal_side,
+                    symbol=pair,
+                    price=sig_price,
                 )
             elif action in ("buy", "sell"):
                 self._consume_pending_marker(pair, signal_result)
@@ -1282,6 +1298,7 @@ class MainWindow(QWidget):
     def _set_fli_candles(self, pair: str, df):
         """Push OHLC candles to the chart using exchange-style Unix time."""
         import math as _math
+
         candles = []
         for _, r in df.iterrows():
             row_time = r.get("time")
@@ -1316,6 +1333,7 @@ class MainWindow(QWidget):
     def _set_fli_lines(self, pair: str, df):
         """Push the FLI trendline, Bollinger bands, and signal state."""
         import math as _math
+
         bull, bear, neutral, bbu, bbl = [], [], [], [], []
         for _, r in df.iterrows():
             row_time = r.get("time")
@@ -1424,7 +1442,7 @@ class MainWindow(QWidget):
                 if bt_ts is None:
                     continue
                 try:
-                    bt_price = float(m.get('price', 0))
+                    bt_price = float(m.get("price", 0))
                 except (TypeError, ValueError):
                     bt_price = 0.0
                 if action == "bt_buy":
@@ -1452,7 +1470,7 @@ class MainWindow(QWidget):
             self._chart_js(
                 pair,
                 f"try {{ setBacktestMarkers({json.dumps(bt_chart)}); }}"
-                f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+                f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
             )
 
     def _update_fli_info_panel(self, pair: str, row):
@@ -1785,11 +1803,7 @@ class MainWindow(QWidget):
         ]
         self._chart_js(
             pair,
-            f"updateWalletBuyPanel("
-            f"{json.dumps(panel_buys)},"
-            f"{total_qty},"
-            f"{avg_price}"
-            f");",
+            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});",
         )
 
         self._set_status(
@@ -2231,6 +2245,7 @@ class MainWindow(QWidget):
 
     def _build_initial_chart_js(self, pair: str, data: dict) -> str:
         import json as _json
+        import math as _math
 
         candles = data.get("candles", [])
         fli_data = data.get("fli_data")
@@ -2243,13 +2258,16 @@ class MainWindow(QWidget):
                 ts = _to_chart_time(c[0])
                 if ts is None:
                     continue
+                o, h, l, cl = float(c[1]), float(c[2]), float(c[3]), float(c[4])
+                if any(_math.isnan(v) or _math.isinf(v) for v in (o, h, l, cl)):
+                    continue
                 candle_entries.append(
                     {
                         "time": ts,
-                        "open": c[1],
-                        "high": c[2],
-                        "low": c[3],
-                        "close": c[4],
+                        "open": o,
+                        "high": h,
+                        "low": l,
+                        "close": cl,
                     }
                 )
             parts.append("setFliCandles(" + _json.dumps(candle_entries) + ")")
@@ -2261,10 +2279,11 @@ class MainWindow(QWidget):
         if not parts:
             return ""
         body = "\n".join(parts)
-        return f"try {{ {body} }} catch(e) {{ console.warn('chart init skipped:', e.message); }}"
+        return f"try {{ {body} }} catch(e) {{ console.warn('chart init skipped:', e.message, e.stack); }}"
 
     def _build_incremental_js(self, pair: str, data: dict) -> str:
         import json as _json
+        import math as _math
 
         candles = data.get("candles", [])
         fli_data = data.get("fli_data")
@@ -2275,19 +2294,23 @@ class MainWindow(QWidget):
         last = candles[-1]
         ts = _to_chart_time(last[0])
         if ts is not None:
-            parts.append(
-                "updateFliCandle("
-                + _json.dumps(
-                    {
-                        "time": ts,
-                        "open": last[1],
-                        "high": last[2],
-                        "low": last[3],
-                        "close": last[4],
-                    }
+            o, h, l, cl = float(last[1]), float(last[2]), float(last[3]), float(last[4])
+            if any(_math.isnan(v) or _math.isinf(v) for v in (o, h, l, cl)):
+                pass  # skip update, but still send indicators
+            else:
+                parts.append(
+                    "updateFliCandle("
+                    + _json.dumps(
+                        {
+                            "time": ts,
+                            "open": o,
+                            "high": h,
+                            "low": l,
+                            "close": cl,
+                        }
+                    )
+                    + ")"
                 )
-                + ")"
-            )
         # Code Review High #5: delegate to shared helper.
         parts.extend(self._format_fli_data(fli_data, candles))
         if markers:
@@ -2295,7 +2318,7 @@ class MainWindow(QWidget):
         if not parts:
             return ""
         body = "\n".join(parts)
-        return f"try {{ {body} }} catch(e) {{ console.warn('chart update skipped:', e.message); }}"
+        return f"try {{ {body} }} catch(e) {{ console.warn('chart update skipped:', e.message, e.stack); }}"
 
     def _refresh_pipelines(self):
         if not self._is_connected or not self._sessions:

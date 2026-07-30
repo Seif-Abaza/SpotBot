@@ -5,12 +5,14 @@ import sys
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from spotbot.styles import STYLE_QSS
 from spotbot.constants import TRADE_NOTIFIER_AVAILABLE
+from spotbot.exception_logger import excepthook
+from spotbot.styles import STYLE_QSS
 from spotbot.ui.main_window import MainWindow
 
 
 def main():
+    sys.excepthook = excepthook
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
@@ -35,7 +37,8 @@ def main():
     window = MainWindow()
     window.setWindowTitle("Targov v3.0 — Trading Dashboard")
     window.show()
-    sys.exit(app.exec())
+    if not app.exec():
+        sys.exit()
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ class CoinTabWidget(QWidget):
     def _on_chart_loaded(self, ok):
         if not ok:
             return
+
         # Verify the page is truly ready (all JS functions defined) before
         # flushing the queue. QWebEngineView's loadFinished can fire before
         # the inline <script> block has executed — this prevents ReferenceErrors.
@@ -94,6 +95,7 @@ class CoinTabWidget(QWidget):
 
     def _verify_and_flush(self):
         """Re-check page readiness and flush JS queue when ready."""
+
         def _check(result):
             if result:
                 self._chart_ready = True
@@ -113,7 +115,7 @@ class CoinTabWidget(QWidget):
         self.chart_view.setHtml(html)
 
     def chart_js(self, code: str):
-        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e); }}"
+        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e, _e.stack); }}"
         if self._chart_ready:
             self.chart_view.page().runJavaScript(safe_code)
         else:
