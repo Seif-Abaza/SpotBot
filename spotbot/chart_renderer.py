@@ -599,6 +599,7 @@ function setBacktestMarkers(btMarkers){
 
 /* ── Backtest trade lines (Buy→Sell connections) ── */
 var _btTradeLines=[];
+var _btLinesScaleCreated=false;
 function clearBacktestTradeLines(){
   for(var i=0;i<_btTradeLines.length;i++){
     try{fliChart.removeSeries(_btTradeLines[i]);}catch(e){}
@@ -608,9 +609,26 @@ function clearBacktestTradeLines(){
 function setBacktestTradeLines(trades){
   /* trades: [{entryTime, exitTime, entryPrice, exitPrice, pnl}, …]
      Draws a colored line from entry→exit for each trade.
-     Green = profit, Red = loss. */
+     Green = profit, Red = loss.
+
+     Uses a separate invisible price scale so the trade lines
+     do NOT interfere with the candlestick auto-scaling. */
   clearBacktestTradeLines();
   if(!trades||!trades.length)return;
+
+  /* Create a separate overlay price scale (invisible) for trade lines.
+     This prevents the auto-scaler from expanding to fit the trade
+     line data, which would squeeze the candles to invisibility. */
+  if(!_btLinesScaleCreated){
+    try {
+      fliChart.priceScale('bt_lines').applyOptions({
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+        visible: false,
+      });
+      _btLinesScaleCreated = true;
+    } catch(e) {}
+  }
+
   for(var i=0;i<trades.length;i++){
     var t=trades[i];
     if(t.entryTime==null||t.exitTime==null)continue;
@@ -627,6 +645,7 @@ function setBacktestTradeLines(trades){
       priceLineVisible:false,
       lastValueVisible:false,
       crosshairMarkerVisible:false,
+      priceScaleId:'bt_lines',
     });
     s.setData([
       {time:t.entryTime, value:t.entryPrice},
