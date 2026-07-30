@@ -214,6 +214,7 @@ class MainWindow(QWidget):
         self._sim_base_price: float = 0.05
 
         self._fli_params = {
+            "signal_source": "fli",
             "bb_period": FLI_BB_PERIOD,
             "bb_dev": FLI_BB_DEV,
             "use_atr": FLI_USE_ATR,
@@ -475,9 +476,62 @@ class MainWindow(QWidget):
         self._set_markers(pair, df, trade_markers=self._pair_markers.get(pair, []))
         self._update_fli_info_panel(pair, df.iloc[-1])
         self._refresh_fli_trade_panel(pair)
+
+        # ── FLI-based trading signal evaluation ──
+        # When signal_source == "fli", use the FLI DataFrame's buy_signal/sell_signal
+        # columns to drive the trading engine (with 1-candle confirmation).
+        if self._fli_params.get("signal_source") == "fli":
+            self._evaluate_fli_trading_signal(pair, df)
         if self._pair_chart_first_load.get(pair, True):
             self._chart_js(pair, "zoomToRecent(100);")
             self._pair_chart_first_load[pair] = False
+
+    def _evaluate_fli_trading_signal(self, pair: str, df):
+        """Evaluate FLI buy_signal/sell_signal on the last row of the DataFrame
+        and route the result through the same pending/buy/sell/rejected
+        marker flow as RSI/MACD signals."""
+        session = self._sessions.get(pair)
+        if not session:
+            return
+        last = df.iloc[-1]
+        fli_buy = bool(last.get("buy_signal", False))
+        fli_sell = bool(last.get("sell_signal", False))
+        try:
+            price = float(last["close"])
+        except (TypeError, ValueError, KeyError):
+            price = 0.0
+        # Get timestamp — prefer 'time' column, fallback to index
+        row_time = last.get("time") or last.get("timestamp")
+        ts = self._fli_ts(row_time) if row_time is not None else None
+        if ts is None:
+            return
+        try:
+            r = session.engine.evaluate_fli_signal(fli_buy, fli_sell, price, ts)
+        except Exception as e:
+            self._set_status(f"⚠️ {pair} FLI signal eval: {e}")
+            return
+        if not r or r.get("action") not in (
+            "buy", "sell", "pending", "skipped", "rejected",
+        ):
+            return
+        action = r["action"]
+        note = r.get("note", "")
+        self._set_status(f"{pair} {action.upper()}: {note}")
+        if action == "pending":
+            self._add_pending_marker(pair, r, [ts, 0, 0, 0, price])
+            signal_side = "buy" if "buy" in r.get("signal", "") else "sell"
+            self._safe_notify(
+                "notify_signal",
+                side=signal_side,
+                symbol=pair,
+                price=price,
+            )
+        elif action in ("buy", "sell"):
+            self._consume_pending_marker(pair, r)
+            if r.get("trade"):
+                self._on_trade_done(pair, r)
+        elif action == "rejected":
+            self._consume_pending_marker(pair, r)
 
     # ─────────────────────────────────────────────────────────────────────
     # Chart JS builders (per-pair) — ported from new_app.py
@@ -880,11 +934,11 @@ class MainWindow(QWidget):
         for all open tabs so the user sees the effect immediately."""
         self._fli_params = new_params
         self._set_status(
-            f"⚙️ Indicator params updated "
-            f"(BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
+            f"⚙️ Params updated: Signal={new_params.get('signal_source', 'fli').upper()}, "
+            f"BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
             f"ATR:{new_params['atr_period']}, CCI:{new_params['cci_len']}, "
             f"ADX:{new_params['adx_len']}, OBV:{new_params['obv_sma_len']}, "
-            f"MinScore:{new_params['min_score']})"
+            f"MinScore:{new_params['min_score']}"
         )
 
         # Re-compute FLI for all open tabs (non-blocking via FLIChartWorker)
@@ -1170,14 +1224,20 @@ class MainWindow(QWidget):
         session.indicators = indicators
 
         # ── Handle trading signal result (came from the worker thread) ──
+        # When signal_source == "fli", signals are evaluated in _on_fli_ready;
+        # skip the RSI/MACD result from the sim worker.
         signal_result = enriched.get("signal_result")
-        if signal_result and signal_result.get("action") in (
-            "buy",
-            "sell",
-            "pending",
-            "hold",
-            "skipped",
-            "rejected",
+        if (
+            signal_result
+            and self._fli_params.get("signal_source") != "fli"
+            and signal_result.get("action") in (
+                "buy",
+                "sell",
+                "pending",
+                "hold",
+                "skipped",
+                "rejected",
+            )
         ):
             action = signal_result["action"]
             note = signal_result.get("note", "")
@@ -1907,11 +1967,11 @@ class MainWindow(QWidget):
         session.indicators = indicators
 
         # ── Evaluate trading signals on the latest candle ──
-        # This is the bot's entry/exit point — only confirmed SAI/FLI
-        # signals trigger buy/sell (1-candle confirmation enforced inside
-        # TradingEngine.evaluate_signal).
+        # When signal_source == "fli", trading signals are evaluated in
+        # _on_fli_ready (after FLI computation finishes). Skip RSI/MACD here.
+        # When signal_source == "rsi_macd", use the classic RSI/MACD path.
         try:
-            if len(candles) >= 2:
+            if self._fli_params.get("signal_source") != "fli" and len(candles) >= 2:
                 r = session.engine.evaluate_signal(indicators, candles[-1], candles)
                 if r and r.get("action") in (
                     "buy",

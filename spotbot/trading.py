@@ -136,6 +136,71 @@ class TradingEngine:
             self.ccxt = self.exch_mgr.get_current_exchange()
         return self.ccxt
 
+    def evaluate_fli_signal(
+        self, fli_buy: bool, fli_sell: bool, price: float, ts
+    ):
+        """Evaluate FLI indicator signals with 1-candle confirmation.
+
+        Same pending/confirmation flow as evaluate_signal but uses
+        the FLI buy_signal / sell_signal columns instead of RSI/MACD.
+        """
+        with self._eval_lock:
+            return self._evaluate_fli_signal_locked(fli_buy, fli_sell, price, ts)
+
+    def _evaluate_fli_signal_locked(
+        self, fli_buy: bool, fli_sell: bool, price: float, ts
+    ):
+        """Inner (locked) FLI signal evaluation."""
+        signal = None
+        trigger = "fli"
+
+        if fli_buy and not self.in_position:
+            signal = "buy_signal"
+        elif fli_sell and self.in_position:
+            signal = "sell_signal"
+
+        # ── 1-candle confirmation (same pattern as RSI/MACD) ──
+        if self.pending_signal is None and signal:
+            self.pending_signal = signal
+            self.pending_trigger = trigger
+            self.confirm_candle_ts = ts
+            return {
+                "action": "pending",
+                "signal": signal,
+                "trigger": trigger,
+                "note": f"FLI {signal} — awaiting 1-candle confirmation",
+                "ts": ts,
+                "price": price,
+            }
+
+        elif self.pending_signal and self.confirm_candle_ts != ts:
+            pending = self.pending_signal
+            confirmed = False
+
+            if pending == "buy_signal" and fli_buy and not self.in_position:
+                confirmed = True
+            elif pending == "sell_signal" and fli_sell and self.in_position:
+                confirmed = True
+
+            # Clear pending state BEFORE executing
+            self.pending_signal = None
+            self.pending_trigger = None
+            self.confirm_candle_ts = None
+
+            if confirmed:
+                return self._execute_order(pending, price, ts)
+            return {
+                "action": "rejected",
+                "signal": pending,
+                "trigger": "fli",
+                "note": f"FLI {pending} not confirmed on next candle — rejected",
+                "ts": ts,
+                "price": price,
+            }
+
+        # Same candle as pending — keep waiting
+        return None
+
     def evaluate_signal(
         self, indicators: dict, current_candle: list, all_candles: list
     ):

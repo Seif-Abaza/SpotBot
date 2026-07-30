@@ -7,6 +7,7 @@ Changes take effect immediately for the next indicator computation cycle
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 
 # Default values (must match constants.py)
 DEFAULTS = {
+    "signal_source": "fli",  # "fli" = FLI indicators, "rsi_macd" = RSI+MACD
     "bb_period": 19,
     "bb_dev": 0.6,
     "use_atr": True,
@@ -79,6 +81,22 @@ class IndicatorParamsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
+
+        # ── Signal Source ──
+        grp_src = QGroupBox("Trading Signal Source")
+        form_src = QFormLayout(grp_src)
+        self.cb_signal_source = QComboBox()
+        self.cb_signal_source.addItem("FLI (Trendline + BB + CCI + ADX + OBV)", "fli")
+        self.cb_signal_source.addItem("RSI + MACD (classic)", "rsi_macd")
+        idx = self.cb_signal_source.findData(params.get("signal_source", "fli"))
+        if idx >= 0:
+            self.cb_signal_source.setCurrentIndex(idx)
+        self.cb_signal_source.setToolTip(
+            "FLI: uses trendline reversals confirmed by CCI/ADX/OBV\n"
+            "RSI+MACD: uses RSI oversold/overbought and MACD crossovers"
+        )
+        form_src.addRow("Source:", self.cb_signal_source)
+        layout.addWidget(grp_src)
 
         # ── Bollinger Bands ──
         grp_bb = QGroupBox("Bollinger Bands")
@@ -204,6 +222,9 @@ class IndicatorParamsDialog(QDialog):
 
     def _reset_to_defaults(self):
         """Reset all spinboxes/checkboxes to default values."""
+        idx = self.cb_signal_source.findData(DEFAULTS["signal_source"])
+        if idx >= 0:
+            self.cb_signal_source.setCurrentIndex(idx)
         self.sp_bb_period.setValue(DEFAULTS["bb_period"])
         self.sp_bb_dev.setValue(DEFAULTS["bb_dev"])
         self.cb_use_atr.setChecked(DEFAULTS["use_atr"])
@@ -227,6 +248,7 @@ class IndicatorParamsDialog(QDialog):
     def get_params(self) -> dict:
         """Return the current parameter values as a dict."""
         return {
+            "signal_source": self.cb_signal_source.currentData(),
             "bb_period": self.sp_bb_period.value(),
             "bb_dev": self.sp_bb_dev.value(),
             "use_atr": self.cb_use_atr.isChecked(),
