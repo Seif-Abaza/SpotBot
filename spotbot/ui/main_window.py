@@ -88,6 +88,7 @@ from spotbot.transaction_logger import TransactionLogger
 from spotbot.ui.api_key_dialog import APIKeyDialog
 from spotbot.ui.coin_session import CoinSession
 from spotbot.ui.coin_tab_widget import CoinTabWidget
+from spotbot.ui.indicator_params_dialog import IndicatorParamsDialog
 from spotbot.ui.pnl_dialog import PnLDialog
 from spotbot.ui.resizable_ui import ResizableUI
 from spotbot.workers import (
@@ -278,6 +279,8 @@ class MainWindow(QWidget):
         # ── Backtest checkbox + Best Timeframe button ──
         self.ui.cbAutoBacktest.toggled.connect(self._on_auto_backtest_toggled)
         self.ui.btnBestTimeframe.clicked.connect(self._on_best_timeframe_clicked)
+        # ── Indicator Parameters dialog ──
+        self.ui.btnIndicatorParams.clicked.connect(self._on_indicator_params_clicked)
 
     # ── Helpers ──
 
@@ -593,6 +596,9 @@ class MainWindow(QWidget):
                 )
         self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
 
+        # ── Build trade lines (Buy→Sell pairs) ──
+        self._push_backtest_trade_lines(pair, markers)
+
         # Update backtest stats panel (with equity and duration)
         eq_final = stats.get("equity_final", 0) if stats else 0
         eq_peak = stats.get("equity_peak", 0) if stats else 0
@@ -616,6 +622,37 @@ class MainWindow(QWidget):
                 f"win rate {win_rate:.1f}%, "
                 f"Equity Final ${eq_final:.2f}, Peak ${eq_peak:.2f}"
             )
+
+    def _push_backtest_trade_lines(self, pair: str, markers: list):
+        """Pair bt_buy → bt_sell markers into trade segments and draw
+        colored lines on the chart connecting entry to exit.
+
+        Green line = profitable trade, Red line = losing trade.
+        """
+        # Separate buys and sells, sorted by time
+        buys = [m for m in markers if m.get("action") == "bt_buy"]
+        sells = [m for m in markers if m.get("action") == "bt_sell"]
+        buys.sort(key=lambda x: x["time"])
+        sells.sort(key=lambda x: x["time"])
+
+        # Pair them: first buy → first sell, second buy → second sell, etc.
+        trades = []
+        pair_count = min(len(buys), len(sells))
+        for i in range(pair_count):
+            entry = buys[i]
+            exit_ = sells[i]
+            entry_price = float(entry.get("price", 0))
+            exit_price = float(exit_.get("price", 0))
+            pnl = exit_price - entry_price  # positive = profit
+            trades.append({
+                "entryTime": _to_chart_time(entry["time"]),
+                "exitTime": _to_chart_time(exit_["time"]),
+                "entryPrice": entry_price,
+                "exitPrice": exit_price,
+                "pnl": pnl,
+            })
+
+        self._chart_js(pair, f"setBacktestTradeLines({json.dumps(trades)});")
 
     def _fetch_and_mark_wallet_buys_async(self, pair: str):
         """Fetch wallet buy trades in a QThread to prevent UI freezing."""
@@ -827,6 +864,41 @@ class MainWindow(QWidget):
         self._set_status(f"⚠️ [BestTF] {pair}: {msg}")
         self._set_status(f"Error: {msg}")
         # self.ui.lblTfBacktestStatus.setVisible(True)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Indicator Parameters Dialog
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _on_indicator_params_clicked(self):
+        """Open the indicator parameters dialog and apply changes."""
+        dlg = IndicatorParamsDialog(self._fli_params, parent=self)
+        dlg.params_changed.connect(self._apply_indicator_params)
+        dlg.exec()
+
+    def _apply_indicator_params(self, new_params: dict):
+        """Update the live FLI params and trigger a re-computation
+        for all open tabs so the user sees the effect immediately."""
+        self._fli_params = new_params
+        self._set_status(
+            f"⚙️ Indicator params updated "
+            f"(BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
+            f"ATR:{new_params['atr_period']}, CCI:{new_params['cci_len']}, "
+            f"ADX:{new_params['adx_len']}, OBV:{new_params['obv_sma_len']}, "
+            f"MinScore:{new_params['min_score']})"
+        )
+
+        # Re-compute FLI for all open tabs (non-blocking via FLIChartWorker)
+        for pair in list(self._pair_candles.keys()):
+            candles = self._pair_candles.get(pair, [])
+            if candles:
+                self._load_historical_chart(pair)
+
+        # Re-run backtest for all tabs that have auto-backtest enabled
+        for pair, enabled in list(self._pair_backtest_enabled.items()):
+            if enabled:
+                df = self._pair_fli_df.get(pair)
+                if df is not None and not df.empty:
+                    self._run_backtest_async(pair, df)
 
     # ─────────────────────────────────────────────────────────────────────
     # Simulation Mode — realistic candle generator for fast testing

@@ -596,6 +596,43 @@ function setBacktestMarkers(btMarkers){
   _btMarkers=btMarkers.slice();
   _mergeMarkers();
 }
+
+/* ── Backtest trade lines (Buy→Sell connections) ── */
+var _btTradeLines=[];
+function clearBacktestTradeLines(){
+  for(var i=0;i<_btTradeLines.length;i++){
+    try{fliChart.removeSeries(_btTradeLines[i]);}catch(e){}
+  }
+  _btTradeLines=[];
+}
+function setBacktestTradeLines(trades){
+  /* trades: [{entryTime, exitTime, entryPrice, exitPrice, pnl}, …]
+     Draws a colored line from entry→exit for each trade.
+     Green = profit, Red = loss. */
+  clearBacktestTradeLines();
+  if(!trades||!trades.length)return;
+  for(var i=0;i<trades.length;i++){
+    var t=trades[i];
+    if(t.entryTime==null||t.exitTime==null)continue;
+    var isProfit=t.pnl>=0;
+    var lineColor=isProfit?'rgba(14,203,129,0.6)':'rgba(246,70,93,0.6)';
+    var lineW=2;
+    var s=fliChart.addLineSeries({
+      color:lineColor,
+      lineWidth:lineW,
+      lineStyle:0,
+      priceLineVisible:false,
+      lastValueVisible:false,
+      crosshairMarkerVisible:false,
+    });
+    s.setData([
+      {time:t.entryTime, value:t.entryPrice},
+      {time:t.exitTime,  value:t.exitPrice}
+    ]);
+    _btTradeLines.push(s);
+  }
+}
+
 function setWalletBuyMarkers(markers){
   _walletBuyMarkers=markers.slice();
   _mergeMarkers();
@@ -613,6 +650,7 @@ function clearAll(){
   fliCandles.setData([]);
   fliBull.setData([]);fliBear.setData([]);fliNeutral.setData([]);
   fliBBUpper.setData([]);fliBBLower.setData([]);
+  clearBacktestTradeLines();
   _allMarkers=[];fliCandles.setMarkers([]);
 }
 function fitContent(){fliChart.timeScale().fitContent();}

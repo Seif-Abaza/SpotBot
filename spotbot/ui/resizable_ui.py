@@ -170,6 +170,17 @@ class ResizableUI:
         # )
         tl.addWidget(self.btnBestTimeframe)
 
+        # ── Indicator Parameters button ──
+        self.btnIndicatorParams = QPushButton("⚙ Params")
+        self.btnIndicatorParams.setObjectName("btnIndicatorParams")
+        self.btnIndicatorParams.setMinimumHeight(34)
+        self.btnIndicatorParams.setToolTip(
+            "Open the Indicator Parameters dialog to fine-tune\n"
+            "FLI/SAI settings: BB, ATR, CCI, ADX, OBV, Min Score.\n"
+            "Changes take effect on the next computation cycle."
+        )
+        tl.addWidget(self.btnIndicatorParams)
+
         # ── Timeframe backtest progress label ──
         # self.lblTfBacktestStatus = QLabel("")
         # self.lblTfBacktestStatus.setObjectName("lblTfBacktestStatus")
