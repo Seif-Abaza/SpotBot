@@ -487,29 +487,43 @@ class MainWindow(QWidget):
             chart_markers = []
             for m in markers:
                 action = m.get("action")
+                m_time = m.get("time")
+                if m_time is None:
+                    continue
+                ts = _to_chart_time(m_time)
+                if ts is None:
+                    continue
+                try:
+                    price = float(m.get('price', 0))
+                except (TypeError, ValueError):
+                    price = 0.0
                 if action == "bt_buy":
                     chart_markers.append(
                         {
-                            "time": m["time"],
+                            "time": ts,
                             "position": "belowBar",
                             "color": "#2962ff",  # Blue — distinct from trade green
                             "shape": "arrowUp",
-                            "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                            "text": f"BT BUY @ {price:.4f}",
                             "size": 1,
                         }
                     )
                 elif action == "bt_sell":
                     chart_markers.append(
                         {
-                            "time": m["time"],
+                            "time": ts,
                             "position": "aboveBar",
                             "color": "#ff6d00",  # Orange — distinct from trade red
                             "shape": "arrowDown",
-                            "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                            "text": f"BT SELL @ {price:.4f}",
                             "size": 1,
                         }
                     )
-            self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
+            self._chart_js(
+                pair,
+                f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
+                f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+            )
             # Update backtest stats panel
             self._chart_js(
                 pair,
@@ -568,33 +582,48 @@ class MainWindow(QWidget):
         """Handle backtest results from BacktestWorker (runs on main thread)."""
         self._pair_backtest_markers[pair] = markers
 
-        # Build chart markers
+        # Build chart markers — validate time values to prevent null in JS
         chart_markers = []
         for m in markers:
             action = m.get("action")
+            m_time = m.get("time")
+            # Ensure time is a valid number for the chart
+            if m_time is None:
+                continue
+            ts = _to_chart_time(m_time)
+            if ts is None:
+                continue
+            try:
+                price = float(m.get('price', 0))
+            except (TypeError, ValueError):
+                price = 0.0
             if action == "bt_buy":
                 chart_markers.append(
                     {
-                        "time": m["time"],
+                        "time": ts,
                         "position": "belowBar",
                         "color": "#2962ff",
                         "shape": "arrowUp",
-                        "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                        "text": f"BT BUY @ {price:.4f}",
                         "size": 1,
                     }
                 )
             elif action == "bt_sell":
                 chart_markers.append(
                     {
-                        "time": m["time"],
+                        "time": ts,
                         "position": "aboveBar",
                         "color": "#ff6d00",
                         "shape": "arrowDown",
-                        "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                        "text": f"BT SELL @ {price:.4f}",
                         "size": 1,
                     }
                 )
-        self._chart_js(pair, f"setBacktestMarkers({json.dumps(chart_markers)});")
+        self._chart_js(
+            pair,
+            f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
+            f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+        )
 
         # ── Build trade lines (Buy→Sell pairs) ──
         self._push_backtest_trade_lines(pair, markers)
@@ -629,6 +658,8 @@ class MainWindow(QWidget):
 
         Green line = profitable trade, Red line = losing trade.
         """
+        import math as _math
+
         # Separate buys and sells, sorted by time
         buys = [m for m in markers if m.get("action") == "bt_buy"]
         sells = [m for m in markers if m.get("action") == "bt_sell"]
@@ -641,18 +672,41 @@ class MainWindow(QWidget):
         for i in range(pair_count):
             entry = buys[i]
             exit_ = sells[i]
-            entry_price = float(entry.get("price", 0))
-            exit_price = float(exit_.get("price", 0))
+
+            # Validate times
+            entry_time = _to_chart_time(entry["time"])
+            exit_time = _to_chart_time(exit_["time"])
+            if entry_time is None or exit_time is None:
+                continue
+
+            # Validate prices — skip if 0, NaN, or infinity
+            try:
+                entry_price = float(entry.get("price", 0))
+                exit_price = float(exit_.get("price", 0))
+            except (TypeError, ValueError):
+                continue
+            if entry_price <= 0 or exit_price <= 0:
+                continue
+            if _math.isnan(entry_price) or _math.isnan(exit_price):
+                continue
+            if _math.isinf(entry_price) or _math.isinf(exit_price):
+                continue
+
             pnl = exit_price - entry_price  # positive = profit
             trades.append({
-                "entryTime": _to_chart_time(entry["time"]),
-                "exitTime": _to_chart_time(exit_["time"]),
+                "entryTime": entry_time,
+                "exitTime": exit_time,
                 "entryPrice": entry_price,
                 "exitPrice": exit_price,
                 "pnl": pnl,
             })
 
-        self._chart_js(pair, f"setBacktestTradeLines({json.dumps(trades)});")
+        # Wrap in try-catch so a JS error doesn't break the chart
+        self._chart_js(
+            pair,
+            f"try {{ setBacktestTradeLines({json.dumps(trades)}); }}"
+            f"catch(e) {{ console.warn('trade lines error:', e.message); }}",
+        )
 
     def _fetch_and_mark_wallet_buys_async(self, pair: str):
         """Fetch wallet buy trades in a QThread to prevent UI freezing."""
@@ -1330,29 +1384,43 @@ class MainWindow(QWidget):
             bt_chart = []
             for m in backtest_markers:
                 action = m.get("action")
+                m_time = m.get("time")
+                if m_time is None:
+                    continue
+                bt_ts = _to_chart_time(m_time)
+                if bt_ts is None:
+                    continue
+                try:
+                    bt_price = float(m.get('price', 0))
+                except (TypeError, ValueError):
+                    bt_price = 0.0
                 if action == "bt_buy":
                     bt_chart.append(
                         {
-                            "time": m["time"],
+                            "time": bt_ts,
                             "position": "belowBar",
                             "color": "#2962ff",
                             "shape": "arrowUp",
-                            "text": f"BT BUY @ {m.get('price', 0):.4f}",
+                            "text": f"BT BUY @ {bt_price:.4f}",
                             "size": 1,
                         }
                     )
                 elif action == "bt_sell":
                     bt_chart.append(
                         {
-                            "time": m["time"],
+                            "time": bt_ts,
                             "position": "aboveBar",
                             "color": "#ff6d00",
                             "shape": "arrowDown",
-                            "text": f"BT SELL @ {m.get('price', 0):.4f}",
+                            "text": f"BT SELL @ {bt_price:.4f}",
                             "size": 1,
                         }
                     )
-            self._chart_js(pair, f"setBacktestMarkers({json.dumps(bt_chart)});")
+            self._chart_js(
+                pair,
+                f"try {{ setBacktestMarkers({json.dumps(bt_chart)}); }}"
+                f"catch(e) {{ console.warn('bt markers error:', e.message); }}",
+            )
 
     def _update_fli_info_panel(self, pair: str, row):
         """Push the last bar's indicator readings into the on-chart info box."""

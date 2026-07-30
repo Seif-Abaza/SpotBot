@@ -614,6 +614,9 @@ function setBacktestTradeLines(trades){
   for(var i=0;i<trades.length;i++){
     var t=trades[i];
     if(t.entryTime==null||t.exitTime==null)continue;
+    if(t.entryPrice==null||t.exitPrice==null)continue;
+    if(isNaN(t.entryPrice)||isNaN(t.exitPrice))continue;
+    if(t.entryPrice<=0||t.exitPrice<=0)continue;
     var isProfit=t.pnl>=0;
     var lineColor=isProfit?'rgba(14,203,129,0.6)':'rgba(246,70,93,0.6)';
     var lineW=2;
