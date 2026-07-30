@@ -383,14 +383,20 @@ class MainWindow(QWidget):
         }
 
     def _chart_js(self, pair: str, code: str):
-        """Run JS on the per-pair chart, or queue it until loadFinished."""
+        """Run JS on the per-pair chart, or queue it until loadFinished.
+
+        All code is automatically wrapped in try-catch so that a single
+        JS error (e.g. "Value is null" from lightweight-charts) never
+        crashes the entire chart.
+        """
         tab = self._tabs.get(pair)
         if not tab:
             return
+        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e); }}"
         if self._pair_chart_ready.get(pair, False):
-            tab.chart_view.page().runJavaScript(code)
+            tab.chart_view.page().runJavaScript(safe_code)
         else:
-            self._pair_chart_js_queue.setdefault(pair, []).append(code)
+            self._pair_chart_js_queue.setdefault(pair, []).append(safe_code)
 
     def _flush_pair_js_queue(self, pair: str):
         """Called when a tab's chart loadFinished fires — flush queued JS.
@@ -1275,6 +1281,7 @@ class MainWindow(QWidget):
 
     def _set_fli_candles(self, pair: str, df):
         """Push OHLC candles to the chart using exchange-style Unix time."""
+        import math as _math
         candles = []
         for _, r in df.iterrows():
             row_time = r.get("time")
@@ -1283,13 +1290,24 @@ class MainWindow(QWidget):
             t = self._fli_ts(row_time) if row_time is not None else None
             if t is None:
                 continue
+            try:
+                o = float(r["open"])
+                h = float(r["high"])
+                l = float(r["low"])
+                c = float(r["close"])
+            except (TypeError, ValueError):
+                continue
+            # Skip rows with NaN / inf OHLC — json.dumps would emit bare
+            # NaN which lightweight-charts rejects as "Value is null"
+            if any(_math.isnan(v) or _math.isinf(v) for v in (o, h, l, c)):
+                continue
             candles.append(
                 {
                     "time": t,
-                    "open": float(r["open"]),
-                    "high": float(r["high"]),
-                    "low": float(r["low"]),
-                    "close": float(r["close"]),
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c,
                 }
             )
         self._chart_js(pair, f"setFliCandles({json.dumps(candles)});")
@@ -1297,6 +1315,7 @@ class MainWindow(QWidget):
 
     def _set_fli_lines(self, pair: str, df):
         """Push the FLI trendline, Bollinger bands, and signal state."""
+        import math as _math
         bull, bear, neutral, bbu, bbl = [], [], [], [], []
         for _, r in df.iterrows():
             row_time = r.get("time")
@@ -1308,19 +1327,25 @@ class MainWindow(QWidget):
             tl = r.get("trendline", np.nan)
             if not (isinstance(tl, float) and tl != tl):
                 itrend = int(r.get("itrend", 0))
-                point = {"time": t, "value": float(tl)}
-                if itrend == 1:
-                    bull.append(point)
-                elif itrend == -1:
-                    bear.append(point)
-                else:
-                    neutral.append(point)
+                v = float(tl)
+                if not (_math.isnan(v) or _math.isinf(v)):
+                    point = {"time": t, "value": v}
+                    if itrend == 1:
+                        bull.append(point)
+                    elif itrend == -1:
+                        bear.append(point)
+                    else:
+                        neutral.append(point)
             bu = r.get("bb_upper", np.nan)
             bl = r.get("bb_lower", np.nan)
             if not (isinstance(bu, float) and bu != bu):
-                bbu.append({"time": t, "value": float(bu)})
+                v = float(bu)
+                if not (_math.isnan(v) or _math.isinf(v)):
+                    bbu.append({"time": t, "value": v})
             if not (isinstance(bl, float) and bl != bl):
-                bbl.append({"time": t, "value": float(bl)})
+                v = float(bl)
+                if not (_math.isnan(v) or _math.isinf(v)):
+                    bbl.append({"time": t, "value": v})
         self._chart_js(pair, f"setFliBull({json.dumps(bull)});")
         self._chart_js(pair, f"setFliBear({json.dumps(bear)});")
         self._chart_js(pair, f"setFliNeutral({json.dumps(neutral)});")

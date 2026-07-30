@@ -113,10 +113,11 @@ class CoinTabWidget(QWidget):
         self.chart_view.setHtml(html)
 
     def chart_js(self, code: str):
+        safe_code = f"try {{ {code} }} catch(_e) {{ console.warn('chart JS error:', _e.message || _e); }}"
         if self._chart_ready:
-            self.chart_view.page().runJavaScript(code)
+            self.chart_view.page().runJavaScript(safe_code)
         else:
-            self._chart_js_queue.append(code)
+            self._chart_js_queue.append(safe_code)
 
     # ── Status helpers ──
 
