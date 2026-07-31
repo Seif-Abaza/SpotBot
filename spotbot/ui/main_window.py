@@ -1198,6 +1198,7 @@ class MainWindow(QWidget):
             balance=10_000.0,
             markers=self._pair_markers.get(pair, []),
             timeframe=session.timeframe,
+            signal_source=self._fli_params.get("signal_source", "fli"),
             parent=self,
         )
         worker.process_done.connect(self._on_sim_process_done)
@@ -2087,12 +2088,6 @@ class MainWindow(QWidget):
         #    restart, tab switch, etc.), we don't want two PENDING
         #    badges on the chart.
         markers = [m for m in markers if m.get("action") != "pending"]
-        # Defensive: also drop any duplicate at the same ts (legacy guard).
-        for m in markers:
-            if m.get("action") == "pending" and m.get("ts") == ts:
-                self._pair_pending_ts[pair] = ts
-                self._refresh_markers(pair)
-                return
         markers.append({"ts": ts, "action": "pending", "price": float(price)})
         # Keep last 30 markers
         self._pair_markers[pair] = markers[-30:]
@@ -2221,16 +2216,23 @@ class MainWindow(QWidget):
                 parts.append("setFliBear(" + _json.dumps(bear_pts) + ")")
             if neut_pts:
                 parts.append("setFliNeutral(" + _json.dumps(neut_pts) + ")")
-        ui_state = {
-            "signal": fli_data.get("signal"),
-            "fli_trend": fli_data.get("fli_trend"),
-            "score": fli_data.get("score"),
-            "cci": fli_data.get("cci"),
-            "adx": fli_data.get("adx"),
-            "bb_upper_val": fli_data.get("bb_upper_val"),
-            "bb_lower_val": fli_data.get("bb_lower_val"),
-        }
-        parts.append("updateUIState(" + _json.dumps(ui_state) + ")")
+        # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
+        fli_trend_val = fli_data.get("fli_trend", 0) or 0
+        score_val = (fli_data.get("score_buy", 0) or 0) if fli_trend_val > 0 else (fli_data.get("score_sell", 0) or 0)
+        bbu_val = fli_data.get("bb_upper_val", 0) or 0
+        bbl_val = fli_data.get("bb_lower_val", 0) or 0
+        parts.append(
+            "updateUIState("
+            f"{int(fli_trend_val)},"
+            f"{fli_data.get('cci', 0) or 0},"
+            f"{fli_data.get('adx', 0) or 0},"
+            f"0,"
+            f"{int(score_val)},"
+            f"{bbu_val},"
+            f"{bbl_val},"
+            f"'{fli_data.get('signal', 'WAIT')}'"
+            ")"
+        )
         return parts
 
     def _build_initial_chart_js(self, pair: str, data: dict) -> str:

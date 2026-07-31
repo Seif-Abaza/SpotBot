@@ -228,20 +228,21 @@ def _compute_fli_data(candles):
             return None
         df = fli_compute_all_indicators(df, {})
         last = df.iloc[-1]
-        score = 0
+        score_buy = 0
+        score_sell = 0
         if last.get("buy_signal", False):
-            score += 1
+            score_buy = int(last.get("score_buy", 0))
         if last.get("sell_signal", False):
-            score += 1
-        if last.get("bb_signal", False):
-            score += 1
-        if score >= FLI_MIN_SCORE:
-            if last.get("buy_signal", False):
-                signal = "BUY"
-            elif last.get("sell_signal", False):
-                signal = "SELL"
-            else:
-                signal = "WAIT"
+            score_sell = int(last.get("score_sell", 0))
+
+        # Signal is valid only if the raw reversal fired AND confirmation score is met
+        buy_ok = last.get("buy_signal", False) and score_buy >= FLI_MIN_SCORE
+        sell_ok = last.get("sell_signal", False) and score_sell >= FLI_MIN_SCORE
+
+        if buy_ok:
+            signal = "BUY"
+        elif sell_ok:
+            signal = "SELL"
         else:
             signal = "WAIT"
         fli_trend = int(last.get("itrend", 0))
@@ -252,7 +253,8 @@ def _compute_fli_data(candles):
             "itrend": df["itrend"].tolist(),
             "signal": signal,
             "fli_trend": fli_trend,
-            "score": score,
+            "score_buy": score_buy,
+            "score_sell": score_sell,
             "bb_upper_val": float(last.get("bb_upper", 0)),
             "bb_lower_val": float(last.get("bb_lower", 0)),
             "cci": float(last.get("cci", 0)),
@@ -623,11 +625,13 @@ def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
     bt['Volume'] = df['volume'].values
 
     # Ensure DatetimeIndex (required by backtesting.py)
+    # The 'time' column from fli_ohlcv_to_df contains pd.Timestamp objects,
+    # so try direct conversion first, then fallback to numeric unit parsing.
     if not isinstance(bt.index, pd.DatetimeIndex):
-        # Try converting from 'time' column if available
         if 'time' in df.columns:
             try:
-                idx = pd.to_datetime(df['time'], unit='ms', utc=True)
+                # time column contains pd.Timestamp — convert directly
+                idx = pd.to_datetime(df['time'], utc=True)
                 bt.index = idx
             except Exception:
                 try:
@@ -636,7 +640,7 @@ def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
                 except Exception:
                     pass
         if not isinstance(bt.index, pd.DatetimeIndex):
-            bt.index = pd.to_datetime(df.index)
+            bt.index = pd.to_datetime(bt.index)
 
     return bt
 

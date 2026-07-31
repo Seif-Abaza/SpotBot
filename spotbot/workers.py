@@ -345,7 +345,14 @@ class BacktestWorker(QThread):
 
             from spotbot.indicators import backtest_combined_strategy
 
-            result = backtest_combined_strategy(self.df, self.investment)
+            result = backtest_combined_strategy(
+                self.df,
+                self.investment,
+                hull_mode=self.fli_params.get('hull_mode', 'Hma'),
+                hull_length=self.fli_params.get('hull_length', 55),
+                hull_mult=self.fli_params.get('hull_mult', 1.0),
+                mom_period=self.fli_params.get('mom_period', 10),
+            )
             if not self._running:
                 return
 
@@ -735,6 +742,7 @@ class SimCandleProcessWorker(QThread):
         balance: float = 10_000.0,
         markers: list | None = None,
         timeframe: str = "5m",
+        signal_source: str = "fli",
         parent=None,
     ):
         super().__init__(parent)
@@ -744,6 +752,7 @@ class SimCandleProcessWorker(QThread):
         self.balance = balance
         self.markers = markers or []
         self.timeframe = timeframe
+        self.signal_source = signal_source
         self._running = True
 
     def run(self):
@@ -755,9 +764,11 @@ class SimCandleProcessWorker(QThread):
             if not self._running:
                 return
 
-            # 2. Evaluate trading signal
+            # 2. Evaluate trading signal — only if using RSI/MACD source.
+            # FLI signals are evaluated in _on_fli_ready (main thread) after
+            # the FLI worker finishes.
             signal_result = None
-            if len(self.candles) >= 2:
+            if self.signal_source != "fli" and len(self.candles) >= 2:
                 try:
                     signal_result = self.trading_engine.evaluate_signal(
                         indicators, self.candles[-1], self.candles

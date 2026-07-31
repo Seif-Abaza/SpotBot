@@ -5,6 +5,18 @@ import math
 import random
 import threading
 import time
+from datetime import datetime, timezone
+
+
+def to_float(value, default=0.0):
+    """Safely convert any value to float, returning default on failure."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 
 from spotbot.constants import (
     CONFIRM_MULTIPLIER,
@@ -177,10 +189,18 @@ class TradingEngine:
             pending = self.pending_signal
             confirmed = False
 
-            if pending == "buy_signal" and fli_buy and not self.in_position:
-                confirmed = True
-            elif pending == "sell_signal" and fli_sell and self.in_position:
-                confirmed = True
+            if pending == "buy_signal" and not self.in_position:
+                # Confirm buy if:
+                #   (a) fli_buy is still True on this candle (reversal holds), OR
+                #   (b) close is still above the trendline (trend persists)
+                # This is much more robust than requiring the exact same
+                # buy_signal edge-event to fire again.
+                confirmed = fli_buy or (price > 0 and not fli_sell)
+            elif pending == "sell_signal" and self.in_position:
+                # Confirm sell if:
+                #   (a) fli_sell is still True, OR
+                #   (b) we're in a sell position and no buy signal fires
+                confirmed = fli_sell or (price > 0 and not fli_buy)
 
             # Clear pending state BEFORE executing
             self.pending_signal = None

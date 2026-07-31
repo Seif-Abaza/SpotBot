@@ -8,7 +8,12 @@ import os
 import random
 import time
 
-import ccxtpro
+try:
+    import ccxtpro
+
+    CCXT_PRO_AVAILABLE_INTERNAL = True
+except ImportError:
+    CCXT_PRO_AVAILABLE_INTERNAL = False
 
 try:
     import ccxt
@@ -233,9 +238,10 @@ class ExchangeManager:
             self.exchange = None
         if self.ws_exchange:
             try:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self.ws_exchange.close())
-                loop.close()
+                if CCXT_PRO_AVAILABLE_INTERNAL:
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(self.ws_exchange.close())
+                    loop.close()
             except Exception as e:
                 print(f"[disconnect] ws_exchange.close failed: {e}")
             self.ws_exchange = None
@@ -568,7 +574,7 @@ class ExchangeManager:
 
     def create_ws_exchange(self, exchange_name, is_demo=True):
         """Create ccxt.pro WebSocket exchange for real-time data."""
-        if not CCXT_PRO_AVAILABLE:
+        if not CCXT_PRO_AVAILABLE_INTERNAL:
             return None
         try:
             cls = getattr(ccxtpro, exchange_name.lower(), None)
