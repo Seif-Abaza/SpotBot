@@ -162,76 +162,30 @@ class TradingEngine:
     def _evaluate_fli_signal_locked(
         self, fli_buy: bool, fli_sell: bool, price: float, ts
     ):
-        """Inner (locked) FLI signal evaluation."""
+        """Inner (locked) FLI signal evaluation.
+
+        Executes immediately when FLI score reaches 3/3 — no confirmation delay.
+        """
         signal = None
-        trigger = "fli"
 
         if fli_buy and not self.in_position:
             signal = "buy_signal"
         elif fli_sell and self.in_position:
             signal = "sell_signal"
 
-        # ── 1-candle confirmation (same pattern as RSI/MACD) ──
-        if self.pending_signal is None and signal:
-            self.pending_signal = signal
-            self.pending_trigger = trigger
-            self.confirm_candle_ts = ts
-            return {
-                "action": "pending",
-                "signal": signal,
-                "trigger": trigger,
-                "note": f"FLI {signal} — awaiting 1-candle confirmation",
-                "ts": ts,
-                "price": price,
-            }
+        if signal:
+            return self._execute_order(signal, price, ts)
 
-        elif self.pending_signal and self.confirm_candle_ts != ts:
-            pending = self.pending_signal
-            confirmed = False
-
-            if pending == "buy_signal" and not self.in_position:
-                # Confirm buy if:
-                #   (a) fli_buy is still True on this candle (reversal holds), OR
-                #   (b) close is still above the trendline (trend persists)
-                # This is much more robust than requiring the exact same
-                # buy_signal edge-event to fire again.
-                confirmed = fli_buy or (price > 0 and not fli_sell)
-            elif pending == "sell_signal" and self.in_position:
-                # Confirm sell if:
-                #   (a) fli_sell is still True, OR
-                #   (b) we're in a sell position and no buy signal fires
-                confirmed = fli_sell or (price > 0 and not fli_buy)
-
-            # Clear pending state BEFORE executing
-            self.pending_signal = None
-            self.pending_trigger = None
-            self.confirm_candle_ts = None
-
-            if confirmed:
-                return self._execute_order(pending, price, ts)
-            return {
-                "action": "rejected",
-                "signal": pending,
-                "trigger": "fli",
-                "note": f"FLI {pending} not confirmed on next candle — rejected",
-                "ts": ts,
-                "price": price,
-            }
-
-        # Same candle as pending — keep waiting
         return None
 
     def evaluate_signal(
         self, indicators: dict, current_candle: list, all_candles: list
     ):
         """
-        Evaluate indicator signals. Requires 1-candle confirmation:
-        if signal fires on candle N, wait for candle N+1 to confirm
-        before executing.
+        Evaluate RSI/MACD indicator signals.
+        Executes immediately when a signal fires — no confirmation delay.
 
-        Thread-safe: serializes calls via _eval_lock so the parallel
-        pipeline thread and the main-thread refresh callback can't
-        corrupt pending_signal state.
+        Thread-safe: serializes calls via _eval_lock.
         """
         with self._eval_lock:
             return self._evaluate_signal_locked(indicators, current_candle, all_candles)
@@ -249,7 +203,6 @@ class TradingEngine:
             return None
 
         current_ts = current_candle[0] if current_candle else all_candles[-1][0]
-        # Evaluate the candle being inspected (not always the last bar).
         idx = len(closes) - 1
         if current_candle is not None:
             for i, candle in enumerate(all_candles):
@@ -260,22 +213,14 @@ class TradingEngine:
             return None
 
         # ── Generate signal from the evaluated candle ──
-        # Code Review 3.2: track WHICH trigger fired (RSI vs MACD) so the
-        # 1-candle confirmation step can re-check the SAME condition rather
-        # than always falling back to RSI thresholds.  Previously a
-        # MACD-crossover-triggered pending signal was confirmed/rejected
-        # against an unrelated RSI threshold.
         signal = None
-        trigger = None  # "rsi" | "macd" | None
         rsi_val = rsi_vals[idx] if idx < len(rsi_vals) else None
         if rsi_val is not None and rsi_val < RSI_BUY_THRESHOLD:
             signal = "buy_signal"
-            trigger = "rsi"
         elif rsi_val is not None and rsi_val > RSI_SELL_THRESHOLD:
             signal = "sell_signal"
-            trigger = "rsi"
 
-        # MACD crossover check (0.0 is a valid MACD value — do not use truthiness)
+        # MACD crossover check
         ml_now = macd_line[idx] if idx < len(macd_line) else None
         sl_now = signal_line[idx] if idx < len(signal_line) else None
         ml_prev = macd_line[idx - 1] if idx - 1 < len(macd_line) else None
@@ -288,115 +233,19 @@ class TradingEngine:
         ):
             if ml_prev <= sl_prev and ml_now > sl_now:
                 signal = "buy_signal"
-                trigger = "macd"
             elif ml_prev >= sl_prev and ml_now < sl_now:
                 signal = "sell_signal"
-                trigger = "macd"
 
-        # ── Issue 1 (never set PENDING after BUY / between BUY and SELL):
-        #    while the engine holds an open position, BUY signals are
-        #    suppressed (the bot is long — it should only look for SELL
-        #    signals to exit).  While flat, SELL signals are suppressed
-        #    (nothing to sell).  This prevents the engine from ever
-        #    firing a BUY-pending while already long, which would
-        #    otherwise create a stray PENDING marker between BUY and SELL.
+        # Suppress buy while in position, sell while flat
         if signal == "buy_signal" and self.in_position:
             signal = None
-            trigger = None
         elif signal == "sell_signal" and not self.in_position:
             signal = None
-            trigger = None
 
-        # ── 1-candle confirmation logic (Issue 2 hardening) ──
-        # Hard requirement: after a signal is marked PENDING on candle N,
-        # the engine MUST wait for the NEXT candle (a candle whose ts
-        # differs from confirm_candle_ts) before taking any action.  On
-        # the next candle, the SAME indicator condition that originally
-        # fired is re-checked; if still valid → execute buy/sell, else
-        # → reject and clear the pending state.
-        #
-        # "Same candle, still waiting" returns None so the chart marker
-        # logic doesn't duplicate the PENDING badge on every refresh.
-        if self.pending_signal is None and signal:
-            # First time we see signal → mark as pending
-            self.pending_signal = signal
-            self.pending_trigger = trigger  # remember which condition fired
-            self.confirm_candle_ts = current_ts
-            return {
-                "action": "pending",
-                "signal": signal,
-                "trigger": trigger,
-                "note": f"Signal {signal} ({trigger}) detected — awaiting 1-candle confirmation",
-                "ts": current_ts,
-                "price": closes[idx],
-            }
+        # Execute immediately — no confirmation delay
+        if signal:
+            return self._execute_order(signal, closes[idx], current_ts)
 
-        elif self.pending_signal and self.confirm_candle_ts != current_ts:
-            # New candle arrived and signal was pending → confirm if the
-            # SAME condition that originally fired is still valid on THIS
-            # new candle.  Re-reading the indicator on the new candle is
-            # what "wait for one candle after Pending and take an action
-            # based on the SAI/FLI indicator" means in practice.
-            confirmed_signal = None
-            pending = self.pending_signal
-            pending_trigger = getattr(self, "pending_trigger", None) or "rsi"
-
-            # Re-check conditions on this new candle
-            rsi_now = rsi_vals[idx] if idx < len(rsi_vals) else None
-            ml_now_c = macd_line[idx] if idx < len(macd_line) else None
-            sl_now_c = signal_line[idx] if idx < len(signal_line) else None
-            ml_prev_c = macd_line[idx - 1] if idx - 1 < len(macd_line) else None
-            sl_prev_c = signal_line[idx - 1] if idx - 1 < len(signal_line) else None
-
-            if pending == "buy_signal":
-                if pending_trigger == "rsi":
-                    # RSI buy: original fire was RSI < 30; confirm if
-                    # RSI is still in buy territory (relaxed to < 35).
-                    if rsi_now is not None and rsi_now < RSI_BUY_CONFIRM:
-                        confirmed_signal = "buy_signal"
-                else:
-                    # MACD buy: original fire was macd line crossing ABOVE
-                    # signal line; confirm if macd is STILL above signal
-                    # (the crossover hasn't reversed).
-                    if (
-                        ml_now_c is not None
-                        and sl_now_c is not None
-                        and ml_now_c > sl_now_c + MACD_BUY_CONFIRM_EPS
-                    ):
-                        confirmed_signal = "buy_signal"
-            elif pending == "sell_signal":
-                if pending_trigger == "rsi":
-                    if rsi_now is not None and rsi_now > RSI_SELL_CONFIRM:
-                        confirmed_signal = "sell_signal"
-                else:
-                    if (
-                        ml_now_c is not None
-                        and sl_now_c is not None
-                        and ml_now_c < sl_now_c - MACD_SELL_CONFIRM_EPS
-                    ):
-                        confirmed_signal = "sell_signal"
-
-            # Clear pending state BEFORE executing the order so a slow
-            # _execute_order call can't race with a concurrent
-            # evaluate_signal that would re-confirm against stale state.
-            self.pending_signal = None
-            self.pending_trigger = None
-            self.confirm_candle_ts = None
-
-            if confirmed_signal:
-                return self._execute_order(confirmed_signal, closes[idx], current_ts)
-            return {
-                "action": "rejected",
-                "signal": pending,
-                "trigger": pending_trigger,
-                "note": f"Signal {pending} ({pending_trigger}) not confirmed on next candle — rejected",
-                "ts": current_ts,
-                "price": closes[idx],
-            }
-
-        # Same candle as the one that fired the pending signal — keep
-        # waiting.  Returning None means _on_data_fetched won't re-add
-        # a PENDING marker (no duplicate badge) and won't try to confirm.
         return None
 
     def _execute_order(self, side: str, price: float, ts):

@@ -282,8 +282,7 @@ class MainWindow(QWidget):
         self.ui.clBtnAPIKey.clicked.connect(self._on_setup_api_keys)
         # ── Issue 4: Reset PnL records button ──
         self.ui.btnResetPnL.clicked.connect(self._on_reset_pnl)
-        # ── Backtest checkbox + Best Timeframe button ──
-        self.ui.btnRunBacktest.clicked.connect(self._on_run_backtest_clicked)
+        # ── Best Timeframe button ──
         self.ui.btnBestTimeframe.clicked.connect(self._on_best_timeframe_clicked)
         # ── Indicator Parameters dialog ──
         self.ui.btnIndicatorParams.clicked.connect(self._on_indicator_params_clicked)
@@ -481,9 +480,7 @@ class MainWindow(QWidget):
         self._update_fli_info_panel(pair, df.iloc[-1])
         self._refresh_fli_trade_panel(pair)
 
-        # ── FLI-based trading signal evaluation ──
-        # When signal_source == "fli", use the FLI DataFrame's buy_signal/sell_signal
-        # columns to drive the trading engine (with 1-candle confirmation).
+        # ── FLI-based trading signal evaluation (immediate execution) ──
         if self._fli_params.get("signal_source") == "fli":
             self._evaluate_fli_trading_signal(pair, df)
         if self._pair_chart_first_load.get(pair, True):
@@ -492,8 +489,7 @@ class MainWindow(QWidget):
 
     def _evaluate_fli_trading_signal(self, pair: str, df):
         """Evaluate FLI buy_signal/sell_signal on the last row of the DataFrame
-        and route the result through the same pending/buy/sell/rejected
-        marker flow as RSI/MACD signals."""
+        and route the result through the trading engine (immediate execution)."""
         session = self._sessions.get(pair)
         if not session:
             return
@@ -504,7 +500,6 @@ class MainWindow(QWidget):
             price = float(last["close"])
         except (TypeError, ValueError, KeyError):
             price = 0.0
-        # Get timestamp — prefer 'time' column, fallback to index
         row_time = last.get("time") or last.get("timestamp")
         ts = self._fli_ts(row_time) if row_time is not None else None
         if ts is None:
@@ -514,32 +509,14 @@ class MainWindow(QWidget):
         except Exception as e:
             self._set_status(f"⚠️ {pair} FLI signal eval: {e}")
             return
-        if not r or r.get("action") not in (
-            "buy",
-            "sell",
-            "pending",
-            "skipped",
-            "rejected",
-        ):
+        if not r or r.get("action") not in ("buy", "sell", "skipped"):
             return
         action = r["action"]
         note = r.get("note", "")
         self._set_status(f"{pair} {action.upper()}: {note}")
-        if action == "pending":
-            self._add_pending_marker(pair, r, [ts, 0, 0, 0, price])
-            signal_side = "buy" if "buy" in r.get("signal", "") else "sell"
-            self._safe_notify(
-                "notify_signal",
-                side=signal_side,
-                symbol=pair,
-                price=price,
-            )
-        elif action in ("buy", "sell"):
-            self._consume_pending_marker(pair, r)
+        if action in ("buy", "sell"):
             if r.get("trade"):
                 self._on_trade_done(pair, r)
-        elif action == "rejected":
-            self._consume_pending_marker(pair, r)
 
     # ─────────────────────────────────────────────────────────────────────
     # Chart JS builders (per-pair) — ported from new_app.py
@@ -1983,50 +1960,12 @@ class MainWindow(QWidget):
         try:
             if self._fli_params.get("signal_source") != "fli" and len(candles) >= 2:
                 r = session.engine.evaluate_signal(indicators, candles[-1], candles)
-                if r and r.get("action") in (
-                    "buy",
-                    "sell",
-                    "pending",
-                    "hold",
-                    "skipped",
-                    "rejected",
-                ):
+                if r and r.get("action") in ("buy", "sell", "skipped"):
                     action = r["action"]
                     note = r.get("note", "")
                     self._set_status(f"{pair} {action.upper()}: {note}")
-                    # ── Task 4: PENDING marker logic ──
-                    # • action == "pending" → SAI/FLI just fired a Buy/Sell
-                    #   signal. Place a PENDING marker at the signal candle
-                    #   (MUST wait for 1-candle confirmation).
-                    # • action == "buy"|"sell" → signal was CONFIRMED on
-                    #   the next candle. Remove the PENDING marker that was
-                    #   placed earlier, and place a BUY/SELL marker at the
-                    #   confirmation candle's ts.
-                    # • action == "rejected" → confirmation failed. Remove
-                    #   the PENDING marker (no entry/exit happened).
-                    # • action == "hold"|"skipped" → no marker change.
-                    if action == "pending":
-                        self._add_pending_marker(pair, r, candles[-1])
-                        # ── Task 3: play a "signal" sound whenever SAI/FLI
-                        #    fires a Buy/Sell signal (the engine is now
-                        #    awaiting 1-candle confirmation). ──
-                        signal_side = "buy" if "buy" in r.get("signal", "") else "sell"
-                        try:
-                            sig_price = float(r.get("price", candles[-1][4]) or 0)
-                        except (TypeError, ValueError):
-                            sig_price = 0.0
-                        self._safe_notify(
-                            "notify_signal",
-                            side=signal_side,
-                            symbol=pair,
-                            price=sig_price,
-                        )
-                    elif action in ("buy", "sell"):
-                        self._consume_pending_marker(pair, r)
-                        if r.get("trade"):
-                            self._on_trade_done(pair, r)
-                    elif action == "rejected":
-                        self._consume_pending_marker(pair, r)
+                    if action in ("buy", "sell") and r.get("trade"):
+                        self._on_trade_done(pair, r)
         except Exception as e:
             self._set_status(f"⚠️ {pair} signal eval: {e}")
 

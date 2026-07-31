@@ -143,16 +143,7 @@ class ResizableUI:
             row_tf.addWidget(rb)
         tl.addLayout(row_tf)
 
-        # ── Backtest button (manual, not auto) + Best Timeframe button ──
-        self.btnRunBacktest = QPushButton("📊 Backtest")
-        self.btnRunBacktest.setObjectName("btnRunBacktest")
-        self.btnRunBacktest.setMinimumHeight(34)
-        self.btnRunBacktest.setToolTip(
-            "Run FLI backtest on the active coin's current data.\n"
-            "Displays trade markers, Buy→Sell lines, and statistics."
-        )
-        tl.addWidget(self.btnRunBacktest)
-
+        # ── Best Timeframe button ──
         self.btnBestTimeframe = QPushButton("🔍 Best Timeframe")
         self.btnBestTimeframe.setObjectName("btnBestTimeframe")
         self.btnBestTimeframe.setMinimumHeight(34)
