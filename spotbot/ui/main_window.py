@@ -166,6 +166,9 @@ class MainWindow(QWidget):
         # ── Per-pair FLI worker registry (each open tab gets its own) ──
         self._fli_workers: dict[str, FLIChartWorker] = {}
         self._pair_candles: dict[str, list] = {}  # pair → last candles
+        self._pair_last_chart_ts: dict[
+            str, int
+        ] = {}  # pair → last candle ts sent to chart
         self._pair_markers: dict[str, list] = {}  # pair → last markers
         self._pair_fli_df: dict[str, object] = {}  # pair → last fli_df
         self._pair_chart_ready: dict[str, bool] = {}  # pair → chart loaded flag
@@ -207,9 +210,9 @@ class MainWindow(QWidget):
         # ── Simulation mode state ──
         self._simulation_active: bool = False
         self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
-        self._sim_process_workers: dict[str, SimCandleProcessWorker] = (
-            {}
-        )  # pair → process worker
+        self._sim_process_workers: dict[
+            str, SimCandleProcessWorker
+        ] = {}  # pair → process worker
         self._sim_processing: dict[str, bool] = {}  # pair → is processing?
         self._sim_base_price: float = 0.05
 
@@ -373,6 +376,7 @@ class MainWindow(QWidget):
             self._pair_chart_js_queue[pair] = []
             self._pair_chart_html_loaded[pair] = False
             self._pair_candles[pair] = []
+            self._pair_last_chart_ts[pair] = 0
             self._pair_markers[pair] = []
             self._pair_fli_df[pair] = None
             self._pair_backtest_markers[pair] = []
@@ -511,7 +515,11 @@ class MainWindow(QWidget):
             self._set_status(f"⚠️ {pair} FLI signal eval: {e}")
             return
         if not r or r.get("action") not in (
-            "buy", "sell", "pending", "skipped", "rejected",
+            "buy",
+            "sell",
+            "pending",
+            "skipped",
+            "rejected",
         ):
             return
         action = r["action"]
@@ -1202,9 +1210,7 @@ class MainWindow(QWidget):
             parent=self,
         )
         worker.process_done.connect(self._on_sim_process_done)
-        worker.process_error.connect(
-            lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}")
-        )
+        worker.process_error.connect(lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}"))
         self._sim_process_workers[pair] = worker
         worker.start()
 
@@ -1231,7 +1237,8 @@ class MainWindow(QWidget):
         if (
             signal_result
             and self._fli_params.get("signal_source") != "fli"
-            and signal_result.get("action") in (
+            and signal_result.get("action")
+            in (
                 "buy",
                 "sell",
                 "pending",
@@ -1319,6 +1326,8 @@ class MainWindow(QWidget):
                 }
             )
         self._chart_js(pair, f"setFliCandles({json.dumps(candles)});")
+        if candles:
+            self._pair_last_chart_ts[pair] = candles[-1]["time"]
         self._chart_js(pair, f"setSymbol({json.dumps(f'{pair} ({self._tf()})')});")
 
     def _set_fli_lines(self, pair: str, df):
@@ -2263,6 +2272,10 @@ class MainWindow(QWidget):
                     }
                 )
             parts.append("setFliCandles(" + _json.dumps(candle_entries) + ")")
+            # lightweight-charts update() throws "Cannot update oldest data"
+            # if the new candle ts is not strictly newer than the last bar.
+            if candle_entries:
+                self._pair_last_chart_ts[pair] = candle_entries[-1]["time"]
         # Code Review High #5: delegate to shared helper.
         parts.extend(self._format_fli_data(fli_data, candles))
         if markers:
@@ -2285,9 +2298,13 @@ class MainWindow(QWidget):
         parts = []
         last = candles[-1]
         ts = _to_chart_time(last[0])
+        last_ts = self._pair_last_chart_ts.get(pair, 0)
         if ts is not None:
             o, h, l, cl = float(last[1]), float(last[2]), float(last[3]), float(last[4])
-            if any(_math.isnan(v) or _math.isinf(v) for v in (o, h, l, cl)):
+            if (
+                any(_math.isnan(v) or _math.isinf(v) for v in (o, h, l, cl))
+                or ts <= last_ts
+            ):
                 pass  # skip update, but still send indicators
             else:
                 parts.append(
@@ -2303,6 +2320,7 @@ class MainWindow(QWidget):
                     )
                     + ")"
                 )
+                self._pair_last_chart_ts[pair] = ts
         # Code Review High #5: delegate to shared helper.
         parts.extend(self._format_fli_data(fli_data, candles))
         if markers:
@@ -2361,6 +2379,7 @@ class MainWindow(QWidget):
         if wb_worker and wb_worker.isRunning():
             wb_worker.stop()
         self._pair_candles.pop(pair, None)
+        self._pair_last_chart_ts.pop(pair, None)
         self._pair_markers.pop(pair, None)
         self._pair_fli_df.pop(pair, None)
         self._pair_chart_ready.pop(pair, None)
@@ -2837,6 +2856,7 @@ class MainWindow(QWidget):
         self._charts_data.clear()
         self._fli_workers.clear()
         self._pair_candles.clear()
+        self._pair_last_chart_ts.clear()
         self._pair_markers.clear()
         self._pair_fli_df.clear()
         self._pair_chart_ready.clear()
