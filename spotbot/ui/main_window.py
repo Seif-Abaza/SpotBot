@@ -1058,7 +1058,12 @@ class MainWindow(QWidget):
                 self._refresh_timer.start()
 
     def _start_simulation_for_pair(self, pair: str):
-        """Start a SimulationWorker for the given pair."""
+        """Start a SimulationWorker for the given pair.
+
+        If the session already has real candles, the simulator seeds
+        from the last real candle and continues from there (indicators,
+        signals, and alerts all keep working on the extended data).
+        """
         # Stop existing sim worker for this pair
         old = self._sim_workers.get(pair)
         if old and old.isRunning():
@@ -1067,10 +1072,14 @@ class MainWindow(QWidget):
         session = self._sessions.get(pair)
         tf = session.timeframe if session else self._tf()
 
+        # Pass existing real candles so the simulator continues from them
+        existing_candles = list(session.candles) if session and session.candles else []
+
         worker = SimulationWorker(
             pair=pair,
             base_price=self._sim_base_price,
             timeframe=tf,
+            existing_candles=existing_candles,
             parent=self,
         )
         ms = self._sim_interval_from_slider(self.sliderSimSpeed.value())
@@ -1227,6 +1236,14 @@ class MainWindow(QWidget):
 
         # ── Update chart (lightweight — just JS calls) ──
         self._on_chart_ready(pair, enriched)
+
+        # ── Evaluate alerts against the new candle ──
+        last_candle = enriched.get("candles", [])[-1:] if enriched.get("candles") else []
+        if last_candle:
+            self._evaluate_alerts(pair, last_candle[0], enriched.get("indicators"))
+
+        # ── Draw alert price lines ──
+        self._draw_alert_price_lines(pair)
 
     @staticmethod
     def _fli_ts(row_time):
@@ -1802,6 +1819,9 @@ class MainWindow(QWidget):
 
         # ── Process any trade results from the pipeline ──
         self._process_trade_results(pair, data)
+
+        # ── Draw alert price lines on chart ──
+        self._draw_alert_price_lines(pair)
 
     def _process_trade_results(self, pair: str, data: dict):
         """Inspect trading results from the pipeline and route buy/sell/hold/
@@ -2988,11 +3008,260 @@ class MainWindow(QWidget):
 
     def _on_chart_candle_click(self, pair: str, time: int, price: float):
         """Open the Alert dialog when user clicks a candle on the chart."""
-        from spotbot.ui.alert_dialog import AlertDialog
+        from spotbot.ui.alert_dialog import AlertDialog, load_alerts
         dlg = AlertDialog(
             pair=pair,
             candle_time=time,
             candle_price=price,
             parent=self,
         )
+        dlg.alert_created.connect(lambda d: self._on_alerts_changed(pair))
         dlg.exec()
+        # Always refresh alert lines after dialog closes (user may have deleted)
+        self._draw_alert_price_lines(pair)
+
+    def _on_alerts_changed(self, pair: str):
+        """Called when alerts are created, updated, or deleted for a pair."""
+        self._draw_alert_price_lines(pair)
+
+    def _draw_alert_price_lines(self, pair: str):
+        """Draw horizontal dashed lines on the chart at each alert's price level."""
+        from spotbot.ui.alert_dialog import load_alerts
+        alerts = load_alerts()
+        pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
+        prices = []
+        for a in pair_alerts:
+            v1 = a.get("value1", 0)
+            v2 = a.get("value2", 0)
+            if v1 and v1 > 0:
+                prices.append(float(v1))
+            if v2 and v2 > 0:
+                prices.append(float(v2))
+        # Deduplicate
+        prices = sorted(set(prices))
+        import json
+        self._chart_js(pair, f"setAlertPriceLines({json.dumps(prices)});")
+
+    def _evaluate_alerts(self, pair: str, candle: list, indicators: dict = None):
+        """Evaluate all active alerts for the given pair against the new candle.
+
+        Checks price-based and indicator-based conditions and triggers
+        the configured action (sound, order, telegram) when matched.
+        """
+        from spotbot.ui.alert_dialog import load_alerts, save_alerts
+        alerts = load_alerts()
+        pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
+        if not pair_alerts:
+            return
+
+        close = float(candle[4])
+        prev_close = 0.0
+        triggered = []
+
+        # Get previous close from session history
+        session = self._sessions.get(pair)
+        if session and len(session.candles) >= 2:
+            prev_close = float(session.candles[-2][4])
+
+        for alert in pair_alerts:
+            if alert.get("fired") and alert.get("trigger") == "Once only":
+                continue
+
+            op = alert.get("operator", "")
+            cond_type = alert.get("condition_type", "Price")
+            v1 = float(alert.get("value1", 0))
+            v2 = float(alert.get("value2", 0))
+            matched = False
+
+            if cond_type == "Price":
+                matched = self._check_price_condition(op, close, prev_close, v1, v2)
+            elif cond_type == "Indicator" and indicators:
+                ind_name = alert.get("indicator", "")
+                ind_val = self._get_indicator_value(ind_name, indicators)
+                if ind_val is not None:
+                    matched = self._check_price_condition(op, ind_val, prev_close, v1, v2)
+
+            if matched:
+                triggered.append(alert)
+                # Mark as fired if once-only
+                if alert.get("trigger") == "Once only":
+                    alert["fired"] = True
+                self._trigger_alert_action(pair, alert, close)
+
+        # Save updated fired states
+        if any(a.get("fired") for a in pair_alerts):
+            # Merge updated alerts back
+            for updated_a in pair_alerts:
+                for i, orig_a in enumerate(alerts):
+                    if (orig_a.get("pair") == updated_a.get("pair")
+                            and orig_a.get("value1") == updated_a.get("value1")
+                            and orig_a.get("operator") == updated_a.get("operator")):
+                        alerts[i] = updated_a
+                        break
+            save_alerts(alerts)
+
+    @staticmethod
+    def _check_price_condition(op: str, value: float, prev_value: float,
+                                v1: float, v2: float) -> bool:
+        """Check if a value satisfies the alert operator condition."""
+        if op == "Greater Than":
+            return value > v1
+        elif op == "Less Than":
+            return value < v1
+        elif op == "Crossing":
+            return (prev_value <= v1 <= value) or (prev_value >= v1 >= value)
+        elif op == "Crossing Up":
+            return prev_value <= v1 < value
+        elif op == "Crossing Down":
+            return prev_value >= v1 > value
+        elif op == "Entering Channel":
+            return v2 <= value <= v1 and not (v2 <= prev_value <= v1)
+        elif op == "Exiting Channel":
+            return (v2 <= prev_value <= v1) and not (v2 <= value <= v1)
+        elif op == "Inside Channel":
+            return v2 <= value <= v1
+        elif op == "Outside Channel":
+            return value > v1 or value < v2
+        elif op == "Moving Up":
+            return value > prev_value
+        elif op == "Moving Down":
+            return value < prev_value
+        elif op == "Moving Up %":
+            if prev_value > 0:
+                pct = ((value - prev_value) / prev_value) * 100
+                return pct >= v1
+        elif op == "Moving Down %":
+            if prev_value > 0:
+                pct = ((prev_value - value) / prev_value) * 100
+                return pct >= v1
+        return False
+
+    @staticmethod
+    def _get_indicator_value(name: str, indicators: dict) -> float | None:
+        """Extract an indicator value from the indicators dict."""
+        if not indicators:
+            return None
+        try:
+            if "RSI" in name:
+                vals = indicators.get("rsi", [])
+                return float(vals[-1]) if vals else None
+            elif "MACD Line" in name:
+                vals = indicators.get("macd", [])
+                return float(vals[-1]) if vals else None
+            elif "MACD Signal" in name:
+                vals = indicators.get("macd_signal", [])
+                return float(vals[-1]) if vals else None
+            elif "CCI" in name:
+                vals = indicators.get("cci", [])
+                return float(vals[-1]) if vals else None
+            elif "ADX" in name:
+                vals = indicators.get("adx", [])
+                return float(vals[-1]) if vals else None
+            elif "OBV" in name:
+                vals = indicators.get("obv", [])
+                return float(vals[-1]) if vals else None
+            elif "BB Upper" in name:
+                vals = indicators.get("bb_upper", [])
+                return float(vals[-1]) if vals else None
+            elif "BB Lower" in name:
+                vals = indicators.get("bb_lower", [])
+                return float(vals[-1]) if vals else None
+            elif "Trendline" in name:
+                vals = indicators.get("trendline", [])
+                return float(vals[-1]) if vals else None
+        except (TypeError, ValueError, IndexError):
+            pass
+        return None
+
+    def _trigger_alert_action(self, pair: str, alert: dict, price: float):
+        """Execute the configured action for a triggered alert."""
+        action = alert.get("action", "None (Notify only)")
+        op = alert.get("operator", "")
+        v1 = alert.get("value1", 0)
+
+        # Play notification sound
+        sound_path = alert.get("sound_path", "")
+        if sound_path:
+            try:
+                import subprocess
+                import sys
+                if sys.platform == "win32":
+                    import winsound
+                    winsound.PlaySound(sound_path, winsound.SND_FILENAME)
+                else:
+                    subprocess.Popen(
+                        ["aplay", "-q", sound_path],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+            except Exception:
+                pass
+
+        # Log the alert
+        self._log(
+            f"🔔 Alert triggered: {pair} {op} {v1} → {action}"
+        )
+
+        # Execute trading action
+        if "Market Buy" in action:
+            self._execute_alert_order(pair, "buy", price, alert)
+        elif "Market Sell" in action:
+            self._execute_alert_order(pair, "sell", price, alert)
+        elif "Limited Buy" in action:
+            limit_price = float(alert.get("order_price", price))
+            self._execute_alert_order(pair, "buy", limit_price, alert)
+        elif "Limited Sell" in action:
+            limit_price = float(alert.get("order_price", price))
+            self._execute_alert_order(pair, "sell", limit_price, alert)
+        elif "Telegram" in action:
+            self._send_alert_telegram(pair, alert, price)
+
+    def _execute_alert_order(self, pair: str, side: str, price: float, alert: dict):
+        """Execute a virtual order from an alert (works in both live and sim mode)."""
+        import math
+        session = self._sessions.get(pair)
+        if not session:
+            return
+        engine = session.engine
+        qty_usdt = float(alert.get("order_qty", 0))
+        if qty_usdt <= 0:
+            return
+        qty = qty_usdt / price if price > 0 else 0
+        if qty <= 0:
+            return
+
+        # Use the trading engine's virtual order path
+        ts = int(time.time() * 1000)
+        try:
+            if side == "buy" and not engine.in_position:
+                result = engine._execute_order("buy_signal", price, ts)
+                if result and result.get("trade"):
+                    self._on_trade_done(pair, result)
+                    self._log(f"🔔 Alert BUY executed: {pair} @ {price:.6f}")
+            elif side == "sell" and engine.in_position:
+                result = engine._execute_order("sell_signal", price, ts)
+                if result and result.get("trade"):
+                    self._on_trade_done(pair, result)
+                    self._log(f"🔔 Alert SELL executed: {pair} @ {price:.6f}")
+        except Exception as e:
+            self._log(f"⚠️ Alert order error: {e}")
+
+    @staticmethod
+    def _send_alert_telegram(pair: str, alert: dict, price: float):
+        """Send a Telegram message for a triggered alert."""
+        from spotbot.ui.alert_dialog import load_telegram_config
+        import json
+        import urllib.request
+        config = load_telegram_config()
+        token = config.get("bot_token", "")
+        chat_id = config.get("chat_id", "")
+        if not token or not chat_id:
+            return
+        msg = alert.get("telegram_msg", "") or f"🔔 Alert: {pair} {alert.get('operator')} {alert.get('value1')} @ {price}"
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = json.dumps({"chat_id": chat_id, "text": msg}).encode()
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                pass
+        except Exception:
+            pass

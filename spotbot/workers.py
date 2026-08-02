@@ -644,16 +644,18 @@ class SimulationWorker(QThread):
     """QThread: generates realistic candles via CandleSimulator and emits
     them at a user-controllable speed.
 
-    Two phases:
-      1. **History** — emits a batch of historical candles (200+) so the
-         chart and indicators can be seeded immediately.
-      2. **Live** — emits one new candle every ``interval_ms`` milliseconds
-         (configurable via set_interval), simulating real-time streaming.
+    Two modes:
+      * **Seeded** (existing_candles provided): skips history generation,
+        seeds the CandleSimulator from the last real candle and immediately
+        starts streaming new simulated candles.  Indicators, trading signals
+        and alerts all continue from the real data seamlessly.
+      * **Fresh** (no existing_candles): generates 200+ synthetic history
+        candles so the chart and indicators can be seeded, then streams.
 
     Signals mirror ``DataFetchWorker`` so the MainWindow can treat both
     identically — only the data source differs.
     """
-    # Emitted when the initial history batch is ready
+    # Emitted when the initial history batch is ready (empty list if seeded)
     history_ready = Signal(str, list, float)   # pair, candles, balance
     # Emitted for each new candle (same shape as WebSocketWorker.candle_update)
     candle_update = Signal(list)                 # [ts, o, h, l, c, v]
@@ -662,11 +664,12 @@ class SimulationWorker(QThread):
     sim_error = Signal(str)
 
     def __init__(self, pair: str, base_price: float, timeframe: str,
-                 parent=None):
+                 existing_candles: list | None = None, parent=None):
         super().__init__(parent)
         self.pair = pair
         self.base_price = base_price
         self.timeframe = timeframe
+        self.existing_candles = existing_candles or []
         self._interval_ms = 500        # default: new candle every 500 ms
         self._running = True
         self._paused = False
@@ -685,23 +688,36 @@ class SimulationWorker(QThread):
         from spotbot.candle_simulator import CandleSimulator, TF_SECONDS
 
         tf_sec = TF_SECONDS.get(self.timeframe, 180)
-        sim = CandleSimulator(
-            base_price=self.base_price,
-            timeframe_sec=tf_sec,
-        )
 
-        # ── Phase 1: generate and emit history ──
-        try:
-            history = sim.generate_history(count=200)
-            self.history_ready.emit(self.pair, history, 10_000.0)
-            self.sim_status.emit(
-                f"[Simulator] {self.pair}: {len(history)} history candles ready"
+        # ── Seeded mode: continue from last real candle ──
+        if self.existing_candles:
+            sim = CandleSimulator(
+                base_price=float(self.existing_candles[-1][4]),
+                timeframe_sec=tf_sec,
             )
-        except Exception as e:
-            self.sim_error.emit(f"History generation failed: {e}")
-            return
+            sim.seed_from_candles(self.existing_candles)
+            # Emit empty history — the chart already has the real candles
+            self.history_ready.emit(self.pair, [], 10_000.0)
+            self.sim_status.emit(
+                f"[Simulator] {self.pair}: seeded from {len(self.existing_candles)} real candles"
+            )
+        else:
+            # ── Fresh mode: generate synthetic history ──
+            sim = CandleSimulator(
+                base_price=self.base_price,
+                timeframe_sec=tf_sec,
+            )
+            try:
+                history = sim.generate_history(count=200)
+                self.history_ready.emit(self.pair, history, 10_000.0)
+                self.sim_status.emit(
+                    f"[Simulator] {self.pair}: {len(history)} history candles ready"
+                )
+            except Exception as e:
+                self.sim_error.emit(f"History generation failed: {e}")
+                return
 
-        # ── Phase 2: stream new candles at configured interval ──
+        # ── Stream new candles at configured interval ──
         while self._running:
             if self._paused:
                 self.msleep(500)

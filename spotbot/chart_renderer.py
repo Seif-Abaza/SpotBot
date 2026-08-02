@@ -532,6 +532,31 @@ const fliCandles = fliChart.addCandlestickSeries({
 const fliSignalLine = fliChart.addLineSeries({
   color:C.fliBuy, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
 });
+
+// ── Alert price lines (horizontal dashed gray) ──
+let _alertPriceLines = [];
+function setAlertPriceLines(prices){
+  clearAlertPriceLines();
+  if(!prices||!prices.length)return;
+  for(var i=0;i<prices.length;i++){
+    var pl = fliCandles.createPriceLine({
+      price: prices[i],
+      color: 'rgba(138,143,160,0.45)',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: 'Alert ' + prices[i].toFixed(4),
+    });
+    _alertPriceLines.push(pl);
+  }
+}
+function clearAlertPriceLines(){
+  for(var i=0;i<_alertPriceLines.length;i++){
+    try{fliCandles.removePriceLine(_alertPriceLines[i]);}catch(e){}
+  }
+  _alertPriceLines = [];
+}
+
 const fliBBUpper = fliChart.addLineSeries({
   color:'rgba(240,165,0,0.28)', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
 });
@@ -605,6 +630,7 @@ function addMarker(m){
 function clearAll(){
   fliCandles.setData([]);
   fliSignalLine.setData([]);fliBBUpper.setData([]);fliBBLower.setData([]);
+  clearAlertPriceLines();
   _allMarkers=[];fliCandles.setMarkers([]);
 }
 function fitContent(){fliChart.timeScale().fitContent();}

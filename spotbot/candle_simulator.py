@@ -188,6 +188,54 @@ class CandleSimulator:
             round(volume, 4),
         ]
 
+    def seed_from_candles(self, candles: list):
+        """Seed the simulator state from existing real candles.
+
+        The simulator will continue generating new candles from the last
+        real candle's close price and timestamp, preserving the volatility
+        and trend characteristics of the recent data.
+
+        Parameters
+        ----------
+        candles : list of [ts, o, h, l, c, v]
+            Existing OHLCV candle history (at least 2 candles recommended).
+        """
+        if not candles:
+            return
+
+        # Use last candle's close as current price
+        last = candles[-1]
+        self._price = float(last[4])  # close
+        self.base_price = self._price
+        self._timestamp = int(last[0])  # last candle timestamp
+
+        # Build close history from available candles (up to 20 for MA)
+        recent = candles[-20:]
+        self._close_history = [float(c[4]) for c in recent]
+        self._ma20 = sum(self._close_history) / len(self._close_history)
+
+        # Estimate volatility from recent candles
+        if len(recent) >= 2:
+            returns = []
+            for i in range(1, len(recent)):
+                prev_close = float(recent[i - 1][4])
+                curr_close = float(recent[i][4])
+                if prev_close > 0:
+                    returns.append(abs((curr_close - prev_close) / prev_close))
+            if returns:
+                self._vol = max(0.002, min(0.10, sum(returns) / len(returns) * 1.5))
+                self.volatility = self._vol
+
+        # Estimate trend from recent candles
+        if len(recent) >= 5:
+            first_close = float(recent[0][4])
+            last_close = float(recent[-1][4])
+            if first_close > 0:
+                avg_move = (last_close - first_close) / first_close / len(recent)
+                self._trend = max(-self.trend_strength * 4,
+                                  min(self.trend_strength * 4, avg_move))
+                self._trend_duration = random.randint(10, 40)
+
     def reset(self, base_price: Optional[float] = None):
         """Reset the simulator to initial state."""
         if base_price is not None:
