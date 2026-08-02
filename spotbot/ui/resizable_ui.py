@@ -143,8 +143,10 @@ class ResizableUI:
             row_tf.addWidget(rb)
         tl.addLayout(row_tf)
 
-        # ── Best Timeframe button ──
-        self.btnBestTimeframe = QPushButton("🔍 Best Timeframe")
+        # ── Params + Best Timeframe (horizontal) ──
+        row_btns = QHBoxLayout()
+        row_btns.setSpacing(6)
+        self.btnBestTimeframe = QPushButton("🔍 Best TF")
         self.btnBestTimeframe.setObjectName("btnBestTimeframe")
         self.btnBestTimeframe.setMinimumHeight(34)
         self.btnBestTimeframe.setToolTip(
@@ -152,16 +154,8 @@ class ResizableUI:
             "and find the one with the highest Equity Final & Equity Peak.\n"
             "Results are ranked and the best timeframe is suggested."
         )
-        # self.btnBestTimeframe.setStyleSheet(
-        #     "QPushButton{background:#1a237e; color:#fff;"
-        #     " border:1px solid #2962ff; border-radius:4px;"
-        #     " font-weight:bold; font-size:11px;}"
-        #     "QPushButton:hover{background:#283593;}"
-        #     "QPushButton:disabled{background:#111; color:#555; border-color:#333;}"
-        # )
-        tl.addWidget(self.btnBestTimeframe)
+        row_btns.addWidget(self.btnBestTimeframe)
 
-        # ── Indicator Parameters button ──
         self.btnIndicatorParams = QPushButton("⚙ Params")
         self.btnIndicatorParams.setObjectName("btnIndicatorParams")
         self.btnIndicatorParams.setMinimumHeight(34)
@@ -170,7 +164,8 @@ class ResizableUI:
             "FLI/SAI settings: BB, ATR, CCI, ADX, OBV, Min Score.\n"
             "Changes take effect on the next computation cycle."
         )
-        tl.addWidget(self.btnIndicatorParams)
+        row_btns.addWidget(self.btnIndicatorParams)
+        tl.addLayout(row_btns)
 
         # ── Timeframe backtest progress label ──
         # self.lblTfBacktestStatus = QLabel("")
@@ -214,14 +209,14 @@ class ResizableUI:
         il.addLayout(row_inv)
         side.addWidget(self.groupBox_investmint)
 
-        # Connect button
+        # ── Connection / Start Trading / Simulate (horizontal) ──
+        row_ctrl = QHBoxLayout()
+        row_ctrl.setSpacing(6)
         self.btnConnDissconExchange = QPushButton("Connection")
         self.btnConnDissconExchange.setObjectName("btnConnDissconExchange")
         self.btnConnDissconExchange.setMinimumHeight(42)
-        side.addWidget(self.btnConnDissconExchange)
+        row_ctrl.addWidget(self.btnConnDissconExchange)
 
-        # Start Trading button (behind connection/disconnect) — master gate
-        # for automated buy/sell execution. Disabled until exchange connected.
         self.btnStartTrading = QPushButton("Start Trading")
         self.btnStartTrading.setObjectName("btnStartTrading")
         self.btnStartTrading.setMinimumHeight(42)
@@ -229,11 +224,16 @@ class ResizableUI:
         self.btnStartTrading.setChecked(False)
         self.btnStartTrading.setEnabled(False)
         self.btnStartTrading.setToolTip(
-            "Arm automated trading. The bot will then wait for a confirmed "
-            "SAI/FLI buy signal before entering, and only sell when "
-            "sell price > buy price."
+            "Arm automated trading. The bot will execute on confirmed signals."
         )
-        side.addWidget(self.btnStartTrading)
+        row_ctrl.addWidget(self.btnStartTrading)
+        side.addLayout(row_ctrl)
+
+        # ── Sim speed/price controls (hidden by default, shown when Simulate active) ──
+        self.simControlsRow = QHBoxLayout()
+        self.simControlsRow.setSpacing(4)
+        self.simControlsRow.setContentsMargins(0, 0, 0, 0)
+        side.addLayout(self.simControlsRow)
 
         # Show PnL
         self.clBtnShowPnL = QCommandLinkButton("Show &PnL")
@@ -336,19 +336,6 @@ class ResizableUI:
         ):
             pnl_layout.addWidget(lbl)
         pnl_layout.addStretch()
-        # ── Issue 4: Reset button for the Daily P&L table ──
-        self.btnResetPnL = QPushButton("🗑 Reset")
-        self.btnResetPnL.setObjectName("btnResetPnL")
-        self.btnResetPnL.setToolTip(
-            "Clear all logged trades and the saved PnL file.\nThis cannot be undone."
-        )
-        self.btnResetPnL.setStyleSheet(
-            "QPushButton{background:#3a1a1a; color:#ff5252;"
-            " border:1px solid #ff5252; border-radius:3px;"
-            " padding:2px 10px; font-size:11px; font-weight:bold;}"
-            "QPushButton:hover{background:#4a2020;}"
-        )
-        pnl_layout.addWidget(self.btnResetPnL)
         bp_layout.addWidget(self.pnl_box)
 
         # ── TabWidget for rt_table and footerStatusBar (separate tabs) ──
@@ -363,7 +350,24 @@ class ResizableUI:
             "QTabBar::tab:selected{background:#0b0e11; color:#f0a500; border-color:#f0a500;}"
         )
 
-        # Tab 1: Round-trip table
+        # Tab 1: Console Log
+        footer_log_widget = QWidget()
+        footer_log_layout = QVBoxLayout(footer_log_widget)
+        footer_log_layout.setContentsMargins(4, 4, 4, 4)
+        self.footerStatusBar = QTextEdit("Ready")
+        self.footerStatusBar.setObjectName("footerStatusBar")
+        self.footerStatusBar.setMinimumHeight(40)
+        self.footerStatusBar.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.footerStatusBar.setReadOnly(True)
+        self.footerStatusBar.setAcceptRichText(True)
+
+        self.footerStatusBar.setStyleSheet("color:#aaa; font-size:11px;")
+        footer_log_layout.addWidget(self.footerStatusBar)
+        self.bottomTabWidget.addTab(footer_log_widget, "Console Log")
+
+        # Tab 2: Round-trip table
         self.rt_table = QTableWidget(0, 6)
         self.rt_table.setHorizontalHeaderLabels(
             ["Pair", "Buy", "Sell", "Qty", "PnL USDT", "PnL %"]
@@ -383,23 +387,6 @@ class ResizableUI:
             QHeaderView.ResizeMode.Stretch
         )
         self.bottomTabWidget.addTab(self.rt_table, "Round Trips")
-
-        # Tab 2: Footer status bar (log)
-        footer_log_widget = QWidget()
-        footer_log_layout = QVBoxLayout(footer_log_widget)
-        footer_log_layout.setContentsMargins(4, 4, 4, 4)
-        self.footerStatusBar = QTextEdit("Ready")
-        self.footerStatusBar.setObjectName("footerStatusBar")
-        self.footerStatusBar.setMinimumHeight(40)
-        self.footerStatusBar.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self.footerStatusBar.setReadOnly(True)
-        self.footerStatusBar.setAcceptRichText(True)
-
-        self.footerStatusBar.setStyleSheet("color:#aaa; font-size:11px;")
-        footer_log_layout.addWidget(self.footerStatusBar)
-        self.bottomTabWidget.addTab(footer_log_widget, "Console Log")
 
         bp_layout.addWidget(self.bottomTabWidget)
 

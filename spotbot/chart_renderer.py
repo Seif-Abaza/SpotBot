@@ -336,6 +336,7 @@ _FLI_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script src="__LW_CDN__"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -506,7 +507,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
 const C = {
   bg:'#0b0e11', surface:'#1e2329', border:'#2b3139', accent:'#f0a500',
   green:'#0ecb81', red:'#f6465d', blue:'#2196f3', text:'#eaecef',
-  fliBull:'#2962ff', fliBear:'#f6465d'
+  fliBuy:'#0ecb81', fliSell:'#f6465d'
 };
 
 const fliChart = LightweightCharts.createChart(
@@ -528,11 +529,8 @@ const fliCandles = fliChart.addCandlestickSeries({
   wickDownColor:C.red, wickUpColor:C.green,
   });
 
-const fliBull = fliChart.addLineSeries({
-  color:C.fliBull, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
-});
-const fliBear = fliChart.addLineSeries({
-  color:C.fliBear, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
+const fliSignalLine = fliChart.addLineSeries({
+  color:C.fliBuy, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
 });
 const fliNeutral = fliChart.addLineSeries({
   color:'#848e9c', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
@@ -580,8 +578,7 @@ function refreshLegend(d){
 
 function setSymbol(t){document.getElementById('symLabel').textContent=t;}
 function setFliCandles(d){fliCandles.setData(d);if(d.length)refreshLegend(d[d.length-1]);}
-function setFliBull(d){fliBull.setData(d);}
-function setFliBear(d){fliBear.setData(d);}
+function setFliSignalLine(d){fliSignalLine.setData(d);}
 function setFliNeutral(d){fliNeutral.setData(d);}
 function setFliBBUpper(d){fliBBUpper.setData(d);}
 function setFliBBLower(d){fliBBLower.setData(d);}
@@ -612,7 +609,7 @@ function addMarker(m){
 }
 function clearAll(){
   fliCandles.setData([]);
-  fliBull.setData([]);fliBear.setData([]);fliNeutral.setData([]);
+  fliSignalLine.setData([]);fliNeutral.setData([]);
   fliBBUpper.setData([]);fliBBLower.setData([]);
   _allMarkers=[];fliCandles.setMarkers([]);
 }
@@ -631,6 +628,18 @@ function zoomToRecent(count){
   if(bars.length<=count){fliChart.timeScale().fitContent();return;}
   fliChart.timeScale().setVisibleLogicalRange({from:bars.length-count,to:bars.length-1});
 }
+
+new QWebChannel(qt.webChannelTransport, ch => { window.Qt = ch.objects.Qt; });
+
+fliChart.subscribeClick(param => {
+  if(!param || !param.time) return;
+  const d = param.seriesData.get(fliCandles);
+  if(!d) return;
+  const price = d.close || 0;
+  if(typeof Qt !== 'undefined' && Qt.onChartCandleClick) {
+    Qt.onChartCandleClick(param.time, price);
+  }
+});
 
 function updateUIState(fliTrend,cciVal,adxVal,obvDir,score,bbUpper,bbLower,signal){
   $FLI.textContent=fliTrend>0?'BULL':fliTrend<0?'BEAR':'FLAT';

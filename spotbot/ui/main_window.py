@@ -280,8 +280,6 @@ class MainWindow(QWidget):
         # ── Task 2: dockable PnL/Console panel toggle ──
         self.ui.clBtnToggleConsole.toggled.connect(self._on_toggle_console)
         self.ui.clBtnAPIKey.clicked.connect(self._on_setup_api_keys)
-        # ── Issue 4: Reset PnL records button ──
-        self.ui.btnResetPnL.clicked.connect(self._on_reset_pnl)
         # ── Best Timeframe button ──
         self.ui.btnBestTimeframe.clicked.connect(self._on_best_timeframe_clicked)
         # ── Indicator Parameters dialog ──
@@ -991,22 +989,24 @@ class MainWindow(QWidget):
         self.dsbSimPrice.setToolTip("Base price for the simulated candles")
         self.dsbSimPrice.valueChanged.connect(self._on_sim_price_changed)
 
-        # Insert into the toolbar — find the Connect button's parent layout
+        # Insert Simulate button into the same horizontal row as Connection/Start Trading
         btn_connect = self.ui.btnConnDissconExchange
         parent = btn_connect.parentWidget()
         if parent and isinstance(parent, QWidget):
-            # Find the button's index in its layout
             lay = parent.layout()
             if lay:
                 idx = lay.indexOf(btn_connect)
                 if idx >= 0:
-                    # Insert: [Simulate] [Speed: ====o====] [500ms] [Price: [0.0500]]
-                    lay.insertWidget(idx + 1, self.btnSimulation)
-                    lay.insertWidget(idx + 2, self.lblSimSpeed)
-                    lay.insertWidget(idx + 3, self.sliderSimSpeed)
-                    lay.insertWidget(idx + 4, self.lblSimSpeedVal)
-                    lay.insertWidget(idx + 5, self.lblSimPrice)
-                    lay.insertWidget(idx + 6, self.dsbSimPrice)
+                    lay.insertWidget(idx + 2, self.btnSimulation)
+
+        # Add speed/price controls to the dedicated simControlsRow
+        if hasattr(self.ui, 'simControlsRow'):
+            self.ui.simControlsRow.addWidget(self.lblSimSpeed)
+            self.ui.simControlsRow.addWidget(self.sliderSimSpeed)
+            self.ui.simControlsRow.addWidget(self.lblSimSpeedVal)
+            self.ui.simControlsRow.addWidget(self.lblSimPrice)
+            self.ui.simControlsRow.addWidget(self.dsbSimPrice)
+            self.ui.simControlsRow.addStretch()
 
         # Initially hide speed/price controls (only visible when simulation active)
         for w in (
@@ -1308,10 +1308,10 @@ class MainWindow(QWidget):
         self._chart_js(pair, f"setSymbol({json.dumps(f'{pair} ({self._tf()})')});")
 
     def _set_fli_lines(self, pair: str, df):
-        """Push the FLI trendline, Bollinger bands, and signal state."""
+        """Push the FLI trendline (green=buy/red=sell), Bollinger bands, and signal state."""
         import math as _math
 
-        bull, bear, neutral, bbu, bbl = [], [], [], [], []
+        signal_pts, bbu, bbl = [], [], []
         for _, r in df.iterrows():
             row_time = r.get("time")
             if row_time is None:
@@ -1324,13 +1324,8 @@ class MainWindow(QWidget):
                 itrend = int(r.get("itrend", 0))
                 v = float(tl)
                 if not (_math.isnan(v) or _math.isinf(v)):
-                    point = {"time": t, "value": v}
-                    if itrend == 1:
-                        bull.append(point)
-                    elif itrend == -1:
-                        bear.append(point)
-                    else:
-                        neutral.append(point)
+                    color = "#0ecb81" if itrend == 1 else ("#f6465d" if itrend == -1 else "#848e9c")
+                    signal_pts.append({"time": t, "value": v, "color": color})
             bu = r.get("bb_upper", np.nan)
             bl = r.get("bb_lower", np.nan)
             if not (isinstance(bu, float) and bu != bu):
@@ -1341,9 +1336,7 @@ class MainWindow(QWidget):
                 v = float(bl)
                 if not (_math.isnan(v) or _math.isinf(v)):
                     bbl.append({"time": t, "value": v})
-        self._chart_js(pair, f"setFliBull({json.dumps(bull)});")
-        self._chart_js(pair, f"setFliBear({json.dumps(bear)});")
-        self._chart_js(pair, f"setFliNeutral({json.dumps(neutral)});")
+        self._chart_js(pair, f"setFliSignalLine({json.dumps(signal_pts)});")
         self._chart_js(pair, f"setFliBBUpper({json.dumps(bbu)});")
         self._chart_js(pair, f"setFliBBLower({json.dumps(bbl)});")
 
@@ -1566,6 +1559,7 @@ class MainWindow(QWidget):
             lambda ok, p=pair: self._flush_pair_js_queue(p) if ok else None
         )
         tab.trading_toggled.connect(self._on_trading_toggled)
+        tab.candle_clicked.connect(self._on_chart_candle_click)
         idx = self.ui.tabWidget.addTab(tab, pair)
         self.ui.tabWidget.setCurrentIndex(idx)
 
@@ -3022,3 +3016,18 @@ class MainWindow(QWidget):
         self._disconnect()
         self.tx_logger.save_to_file()
         event.accept()
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Alert system — click on candle to create alerts
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _on_chart_candle_click(self, pair: str, time: int, price: float):
+        """Open the Alert dialog when user clicks a candle on the chart."""
+        from spotbot.ui.alert_dialog import AlertDialog
+        dlg = AlertDialog(
+            pair=pair,
+            candle_time=time,
+            candle_price=price,
+            parent=self,
+        )
+        dlg.exec()

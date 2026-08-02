@@ -1,4 +1,7 @@
-"""API Key Dialog: manage LIVE / DEMO keypairs with Fernet encryption."""
+"""API Key Dialog: manage LIVE / DEMO keypairs with Fernet encryption.
+
+Includes Telegram Bot configuration tab for alert notifications.
+"""
 
 import json
 import os
@@ -7,7 +10,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,24 +23,41 @@ from PySide6.QtWidgets import (
 from spotbot.constants import API_KEY_FILE, CONFIG_DIR
 from spotbot.styles import STYLE_QSS
 
+TELEGRAM_FILE = os.path.join(CONFIG_DIR, "telegram.json")
+
+
+def _load_tg_config() -> dict:
+    if os.path.exists(TELEGRAM_FILE):
+        try:
+            with open(TELEGRAM_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def _save_tg_config(config: dict):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(TELEGRAM_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
 
 class APIKeyDialog(QDialog):
-    """🔑 Manage both keypairs (LIVE / DEMO) in tabbed interface."""
+    """Manage LIVE / DEMO API keys and Telegram Bot config in tabbed interface."""
 
     def __init__(self, exchange_mgr, exchange_name, parent=None):
         super().__init__(parent)
         self.exch_mgr = exchange_mgr
         self.exchange_name = exchange_name
-        self.setWindowTitle(f"🔑 API Keys — {exchange_name}")
+        self.setWindowTitle(f"API Keys  {exchange_name}")
         self.setMinimumWidth(480)
         self.setStyleSheet(STYLE_QSS)
 
         layout = QVBoxLayout(self)
-        lbl = QLabel(f"Manage LIVE & DEMO API keys for {exchange_name}")
+        lbl = QLabel(f"Manage API keys & Telegram for {exchange_name}")
         lbl.setStyleSheet("color:#f0a500;font-size:14px;font-weight:bold;padding:8px;")
         layout.addWidget(lbl)
 
-        # ── Tabs: LIVE / DEMO ──
         self.tabs = QTabWidget()
 
         # LIVE tab
@@ -60,7 +79,7 @@ class APIKeyDialog(QDialog):
             lambda c: self._toggle(self.txt_live_secret, self.txt_live_key, c)
         )
         live_form.addRow("", self.chk_live_show)
-        self.tabs.addTab(live_w, "🟢 LIVE")
+        self.tabs.addTab(live_w, "LIVE")
 
         # DEMO tab
         demo_w = QWidget()
@@ -80,15 +99,34 @@ class APIKeyDialog(QDialog):
             lambda c: self._toggle(self.txt_demo_secret, self.txt_demo_key, c)
         )
         demo_form.addRow("", self.chk_demo_show)
-        self.tabs.addTab(demo_w, "🟡 DEMO")
+        self.tabs.addTab(demo_w, "DEMO")
+
+        # TELEGRAM tab
+        tg_w = QWidget()
+        tg_form = QFormLayout(tg_w)
+        tg_config = _load_tg_config()
+        self.txt_tg_token = QLineEdit()
+        self.txt_tg_token.setPlaceholderText("Bot Token from @BotFather")
+        self.txt_tg_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.txt_tg_token.setText(tg_config.get("bot_token", ""))
+        tg_form.addRow("Bot Token:", self.txt_tg_token)
+        self.txt_tg_chat_id = QLineEdit()
+        self.txt_tg_chat_id.setPlaceholderText("Chat ID (e.g. -1001234567890)")
+        self.txt_tg_chat_id.setText(str(tg_config.get("chat_id", "")))
+        tg_form.addRow("Chat ID:", self.txt_tg_chat_id)
+        tg_hint = QLabel("Create a bot via @BotFather on Telegram.\nGet your chat ID from @userinfobot.\nSend /start to your bot first.")
+        tg_hint.setStyleSheet("color:#848e9c; font-size:10px;")
+        tg_hint.setWordWrap(True)
+        tg_form.addRow(tg_hint)
+        self.tabs.addTab(tg_w, "TELEGRAM")
 
         layout.addWidget(self.tabs)
 
         # Buttons
         btn_row = QHBoxLayout()
-        btn_save = QPushButton("💾 Save Both")
+        btn_save = QPushButton("Save All")
         btn_save.clicked.connect(self._on_save)
-        btn_clear = QPushButton("🗑 Clear All")
+        btn_clear = QPushButton("Clear All")
         btn_clear.clicked.connect(self._on_clear)
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
@@ -103,19 +141,11 @@ class APIKeyDialog(QDialog):
         s2.setEchoMode(m)
 
     def _on_save(self):
-        # Code Review Medium #10: validate inputs before persisting.
-        # Previous implementation would happily save an empty key/secret
-        # pair (or one with whitespace only) and then silently fail at
-        # connect-time with a cryptic ccxt AuthenticationError.
         live_key = self.txt_live_key.text().strip()
         live_secret = self.txt_live_secret.text().strip()
         demo_key = self.txt_demo_key.text().strip()
         demo_secret = self.txt_demo_secret.text().strip()
 
-        # A mode is "provided" only if BOTH key and secret are filled.
-        # Anything else is treated as "skip this mode" — but if the user
-        # typed only one of the two fields, that's almost certainly a
-        # mistake, so we warn and abort.
         live_partial = bool(live_key) != bool(live_secret)
         demo_partial = bool(demo_key) != bool(demo_secret)
         if live_partial or demo_partial:
@@ -133,9 +163,6 @@ class APIKeyDialog(QDialog):
             )
             return
 
-        # Minimum-length sanity check (ccxt keys are typically ≥ 8 chars;
-        # secrets are usually longer).  This catches accidental paste
-        # truncation without being overly strict.
         MIN_KEY_LEN = 8
         MIN_SECRET_LEN = 8
         for label, k, s in (
@@ -143,35 +170,26 @@ class APIKeyDialog(QDialog):
             ("DEMO", demo_key, demo_secret),
         ):
             if k and len(k) < MIN_KEY_LEN:
-                QMessageBox.warning(
-                    self,
-                    "API key too short",
-                    f"{label} API key is only {len(k)} chars — looks truncated. "
-                    f"Minimum is {MIN_KEY_LEN}.",
-                )
+                QMessageBox.warning(self, "API key too short",
+                    f"{label} API key is only {len(k)} chars -- looks truncated.")
                 return
             if s and len(s) < MIN_SECRET_LEN:
-                QMessageBox.warning(
-                    self,
-                    "API secret too short",
-                    f"{label} secret is only {len(s)} chars — looks truncated. "
-                    f"Minimum is {MIN_SECRET_LEN}.",
-                )
+                QMessageBox.warning(self, "API secret too short",
+                    f"{label} secret is only {len(s)} chars -- looks truncated.")
                 return
 
-        # Only persist non-empty modes (so the user can clear a mode by
-        # blanking both fields without overwriting the other).
         if live_key and live_secret:
-            self.exch_mgr.set_api_key(
-                self.exchange_name, live_key, live_secret, mode="live"
-            )
+            self.exch_mgr.set_api_key(self.exchange_name, live_key, live_secret, mode="live")
         if demo_key and demo_secret:
-            self.exch_mgr.set_api_key(
-                self.exchange_name, demo_key, demo_secret, mode="demo"
-            )
-        QMessageBox.information(
-            self, "Saved", f"✅ LIVE & DEMO keys saved for {self.exchange_name}"
-        )
+            self.exch_mgr.set_api_key(self.exchange_name, demo_key, demo_secret, mode="demo")
+
+        # Save Telegram config
+        tg_token = self.txt_tg_token.text().strip()
+        tg_chat_id = self.txt_tg_chat_id.text().strip()
+        if tg_token and tg_chat_id:
+            _save_tg_config({"bot_token": tg_token, "chat_id": tg_chat_id})
+
+        QMessageBox.information(self, "Saved", f"All settings saved for {self.exchange_name}")
         self.accept()
 
     def _on_clear(self):
@@ -179,3 +197,5 @@ class APIKeyDialog(QDialog):
         self.txt_live_secret.clear()
         self.txt_demo_key.clear()
         self.txt_demo_secret.clear()
+        self.txt_tg_token.clear()
+        self.txt_tg_chat_id.clear()

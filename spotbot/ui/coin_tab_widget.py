@@ -1,6 +1,6 @@
 """Closable tab widget that hosts CoinSession instances."""
 
-from PySide6.QtCore import Signal, Slot, QUrl, Qt, QTimer
+from PySide6.QtCore import Signal, Slot, QUrl, Qt, QTimer, QObject
 from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
@@ -11,12 +11,26 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebChannel import QWebChannel
+
+
+class _ChartBridge(QObject):
+    """Bridge object exposed to JS via QWebChannel.
+
+    JS calls ``Qt.onChartCandleClick(time, price)`` which arrives here.
+    """
+    candle_clicked = Signal(int, float)  # time, price
+
+    @Slot(int, float)
+    def onChartCandleClick(self, time: int, price: float):
+        self.candle_clicked.emit(time, price)
 
 
 class CoinTabWidget(QWidget):
     """A closable tab that hosts a chart + status bar for one trading pair."""
 
     trading_toggled = Signal(str, bool)  # pair, enabled
+    candle_clicked = Signal(str, int, float)  # pair, time, price
 
     def __init__(self, session: "CoinSession", parent=None):
         super().__init__(parent)
@@ -24,20 +38,27 @@ class CoinTabWidget(QWidget):
         self._chart_ready = False
         self._chart_js_queue: list[str] = []
 
+        # WebChannel bridge for JS->Python communication
+        self._bridge = _ChartBridge(self)
+        self._bridge.candle_clicked.connect(self._on_bridge_candle_click)
+        self._channel = QWebChannel(self)
+        self._channel.registerObject("Qt", self._bridge)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── Chart view ──
+        # Chart view
         self.chart_view = QWebEngineView()
         self.chart_view.setUrl(QUrl("about:blank"))
         self.chart_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+        self.chart_view.page().setWebChannel(self._channel)
         self.chart_view.loadFinished.connect(self._on_chart_loaded)
         layout.addWidget(self.chart_view, stretch=1)
 
-        # ── Status bar ──
+        # Status bar
         bar = QHBoxLayout()
         bar.setContentsMargins(6, 2, 6, 2)
         self.lbl_pair = QLabel(session.pair)
@@ -50,7 +71,7 @@ class CoinTabWidget(QWidget):
         bar.addWidget(self.lbl_status, stretch=1)
         bar.addWidget(self.lbl_balance)
 
-        self.btn_toggle_trading = QPushButton("🔴 Not Trading")
+        self.btn_toggle_trading = QPushButton("Not Trading")
         self.btn_toggle_trading.setFixedSize(110, 28)
         self.btn_toggle_trading.setToolTip("Toggle automated trading ON / OFF")
         self.btn_toggle_trading.setStyleSheet(
@@ -63,22 +84,16 @@ class CoinTabWidget(QWidget):
         bar.addWidget(self.btn_toggle_trading)
         layout.addLayout(bar)
 
-        # NOTE: The PnL summary box, round-trip table, and footer status
-        # bar used to live inside each tab. They have been promoted to a
-        # single shared dockable panel at the bottom of the MainWindow so
-        # the user can show/hide them and let the chart_view auto-resize.
-        # See MainWindow._build_bottom_panel / _refresh_bottom_panel_for.
+    def _on_bridge_candle_click(self, time: int, price: float):
+        self.candle_clicked.emit(self.session.pair, time, price)
 
-    # ── Chart helpers ──
+    # Chart helpers
 
     @Slot(bool)
     def _on_chart_loaded(self, ok):
         if not ok:
             return
 
-        # Verify the page is truly ready (all JS functions defined) before
-        # flushing the queue. QWebEngineView's loadFinished can fire before
-        # the inline <script> block has executed — this prevents ReferenceErrors.
         def _check(result):
             if result:
                 self._chart_ready = True
@@ -86,7 +101,6 @@ class CoinTabWidget(QWidget):
                 for code in pending:
                     self.chart_view.page().runJavaScript(code)
             else:
-                # Page not ready yet — retry after 50 ms
                 QTimer.singleShot(50, self._verify_and_flush)
 
         self.chart_view.page().runJavaScript(
@@ -94,8 +108,6 @@ class CoinTabWidget(QWidget):
         )
 
     def _verify_and_flush(self):
-        """Re-check page readiness and flush JS queue when ready."""
-
         def _check(result):
             if result:
                 self._chart_ready = True
@@ -121,7 +133,7 @@ class CoinTabWidget(QWidget):
         else:
             self._chart_js_queue.append(safe_code)
 
-    # ── Status helpers ──
+    # Status helpers
 
     def set_status(self, msg: str):
         self.lbl_status.setText(msg)
@@ -135,7 +147,7 @@ class CoinTabWidget(QWidget):
         self.trading_toggled.emit(pair, new_state)
 
     def show_trading_started(self):
-        self.btn_toggle_trading.setText("🟢 Trading")
+        self.btn_toggle_trading.setText("Trading")
         self.btn_toggle_trading.setStyleSheet(
             "QPushButton{background:#1b5e20; color:#fff; border:1px solid #4caf50;"
             " border-radius:4px; font-weight:bold;}"
@@ -144,7 +156,7 @@ class CoinTabWidget(QWidget):
         self.lbl_status.setText("Trading ON")
 
     def show_trading_stopped(self):
-        self.btn_toggle_trading.setText("🔴 Not Trading")
+        self.btn_toggle_trading.setText("Not Trading")
         self.btn_toggle_trading.setStyleSheet(
             "QPushButton{background:#b71c1c; color:#fff; border:1px solid #f44336;"
             " border-radius:4px; font-weight:bold;}"
