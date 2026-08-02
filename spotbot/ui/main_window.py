@@ -937,26 +937,10 @@ class MainWindow(QWidget):
     # ─────────────────────────────────────────────────────────────────────
 
     def _setup_simulation_ui(self):
-        """Create the Simulation toggle button and speed slider, inserting
-        them into the existing toolbar layout next to the Connect button."""
-        # ── Simulation toggle button ──
-        self.btnSimulation = QPushButton("🎮 Simulate")
-        self.btnSimulation.setCheckable(True)
-        self.btnSimulation.setToolTip(
-            "Toggle chart simulation mode.\n\n"
-            "When active, generates realistic fake candles locally\n"
-            "instead of fetching from the exchange.\n\n"
-            "All indicators, trading signals, markers, and backtest\n"
-            "run normally — only the data source is mocked.\n\n"
-            "No real orders are placed during simulation."
-        )
-        # self.btnSimulation.setStyleSheet(self.btnSimulation.styleSheet() + """
-        #     QPushButton:checked {
-        #         background-color: #2962ff;
-        #         color: white;
-        #         border: 1px solid #2962ff;
-        #     }
-        #     """)
+        """Create the Simulation speed slider and price spinbox.
+        The Simulate button itself is already created in ResizableUI."""
+        # Re-use the button created in resizable_ui.py
+        self.btnSimulation = self.ui.btnSimulation
         self.btnSimulation.toggled.connect(self._on_simulation_toggled)
 
         # ── Speed slider ──
@@ -988,16 +972,6 @@ class MainWindow(QWidget):
         self.dsbSimPrice.setFixedWidth(90)
         self.dsbSimPrice.setToolTip("Base price for the simulated candles")
         self.dsbSimPrice.valueChanged.connect(self._on_sim_price_changed)
-
-        # Insert Simulate button into the same horizontal row as Connection/Start Trading
-        btn_connect = self.ui.btnConnDissconExchange
-        parent = btn_connect.parentWidget()
-        if parent and isinstance(parent, QWidget):
-            lay = parent.layout()
-            if lay:
-                idx = lay.indexOf(btn_connect)
-                if idx >= 0:
-                    lay.insertWidget(idx + 2, self.btnSimulation)
 
         # Add speed/price controls to the dedicated simControlsRow
         if hasattr(self.ui, 'simControlsRow'):
@@ -2138,26 +2112,17 @@ class MainWindow(QWidget):
         if bb_lower:
             parts.append("setFliBBLower(" + _to_series(bb_lower) + ")")
         if trendline and itrend and len(itrend) == len(trendline):
-            bull_pts, bear_pts, neut_pts = [], [], []
+            signal_pts = []
             for i, (v, t) in enumerate(zip(trendline, itrend)):
                 if v is None or (isinstance(v, float) and v != v):
                     continue
                 t2 = _to_chart_time(candles[i][0]) if i < len(candles) else None
                 if t2 is None:
                     continue
-                pt = {"time": t2, "value": float(v)}
-                if t == 1:
-                    bull_pts.append(pt)
-                elif t == -1:
-                    bear_pts.append(pt)
-                else:
-                    neut_pts.append(pt)
-            if bull_pts:
-                parts.append("setFliBull(" + _json.dumps(bull_pts) + ")")
-            if bear_pts:
-                parts.append("setFliBear(" + _json.dumps(bear_pts) + ")")
-            if neut_pts:
-                parts.append("setFliNeutral(" + _json.dumps(neut_pts) + ")")
+                color = "#0ecb81" if t == 1 else ("#f6465d" if t == -1 else "#848e9c")
+                signal_pts.append({"time": t2, "value": float(v), "color": color})
+            if signal_pts:
+                parts.append("setFliSignalLine(" + _json.dumps(signal_pts) + ")")
         # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
         fli_trend_val = fli_data.get("fli_trend", 0) or 0
         score_val = (fli_data.get("score_buy", 0) or 0) if fli_trend_val > 0 else (fli_data.get("score_sell", 0) or 0)

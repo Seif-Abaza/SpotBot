@@ -227,6 +227,20 @@ class ResizableUI:
             "Arm automated trading. The bot will execute on confirmed signals."
         )
         row_ctrl.addWidget(self.btnStartTrading)
+
+        self.btnSimulation = QPushButton("🎮 Simulate")
+        self.btnSimulation.setObjectName("btnSimulation")
+        self.btnSimulation.setMinimumHeight(42)
+        self.btnSimulation.setCheckable(True)
+        self.btnSimulation.setToolTip(
+            "Toggle chart simulation mode.\n\n"
+            "When active, generates realistic fake candles locally\n"
+            "instead of fetching from the exchange.\n\n"
+            "All indicators, trading signals, markers, and backtest\n"
+            "run normally — only the data source is mocked.\n\n"
+            "No real orders are placed during simulation."
+        )
+        row_ctrl.addWidget(self.btnSimulation)
         side.addLayout(row_ctrl)
 
         # ── Sim speed/price controls (hidden by default, shown when Simulate active) ──

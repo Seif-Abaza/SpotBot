@@ -226,11 +226,6 @@ class IndicatorParamsDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
-        self.btn_reset = QPushButton("\u21a9 Reset Defaults")
-        self.btn_reset.setToolTip("Reset all parameters to their default values")
-        self.btn_reset.clicked.connect(self._reset_to_defaults)
-        btn_row.addWidget(self.btn_reset)
-
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
@@ -241,26 +236,6 @@ class IndicatorParamsDialog(QDialog):
         btn_row.addWidget(self.btn_apply)
 
         main_layout.addLayout(btn_row)
-
-    def _reset_to_defaults(self):
-        """Reset all spinboxes/checkboxes to default values."""
-        idx = self.cb_signal_source.findData(DEFAULTS["signal_source"])
-        if idx >= 0:
-            self.cb_signal_source.setCurrentIndex(idx)
-        self.sp_bb_period.setValue(DEFAULTS["bb_period"])
-        self.sp_bb_dev.setValue(DEFAULTS["bb_dev"])
-        self.cb_use_atr.setChecked(DEFAULTS["use_atr"])
-        self.sp_atr_period.setValue(DEFAULTS["atr_period"])
-        self.cb_use_cci.setChecked(DEFAULTS["use_cci"])
-        self.sp_cci_len.setValue(DEFAULTS["cci_len"])
-        self.sp_cci_level.setValue(DEFAULTS["cci_level"])
-        self.sp_cci_buffer.setValue(DEFAULTS["cci_buffer"])
-        self.cb_use_adx.setChecked(DEFAULTS["use_adx"])
-        self.sp_adx_len.setValue(DEFAULTS["adx_len"])
-        self.sp_adx_level.setValue(DEFAULTS["adx_level"])
-        self.cb_use_obv.setChecked(DEFAULTS["use_obv"])
-        self.sp_obv_sma_len.setValue(DEFAULTS["obv_sma_len"])
-        self.sp_min_score.setValue(DEFAULTS["min_score"])
 
     def _apply(self):
         """Collect values and accept the dialog."""

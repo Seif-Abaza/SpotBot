@@ -532,10 +532,6 @@ const fliCandles = fliChart.addCandlestickSeries({
 const fliSignalLine = fliChart.addLineSeries({
   color:C.fliBuy, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
 });
-const fliNeutral = fliChart.addLineSeries({
-  color:'#848e9c', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed,
-  priceLineVisible:false, lastValueVisible:false,
-});
 const fliBBUpper = fliChart.addLineSeries({
   color:'rgba(240,165,0,0.28)', lineWidth:1, priceLineVisible:false, lastValueVisible:false,
 });
@@ -579,7 +575,6 @@ function refreshLegend(d){
 function setSymbol(t){document.getElementById('symLabel').textContent=t;}
 function setFliCandles(d){fliCandles.setData(d);if(d.length)refreshLegend(d[d.length-1]);}
 function setFliSignalLine(d){fliSignalLine.setData(d);}
-function setFliNeutral(d){fliNeutral.setData(d);}
 function setFliBBUpper(d){fliBBUpper.setData(d);}
 function setFliBBLower(d){fliBBLower.setData(d);}
 function updateFliCandle(c){fliCandles.update(c);_lastCandle=c;refreshLegend(c);if(_autoScroll)fliChart.timeScale().scrollToRealTime();}
@@ -609,8 +604,7 @@ function addMarker(m){
 }
 function clearAll(){
   fliCandles.setData([]);
-  fliSignalLine.setData([]);fliNeutral.setData([]);
-  fliBBUpper.setData([]);fliBBLower.setData([]);
+  fliSignalLine.setData([]);fliBBUpper.setData([]);fliBBLower.setData([]);
   _allMarkers=[];fliCandles.setMarkers([]);
 }
 function fitContent(){fliChart.timeScale().fitContent();}

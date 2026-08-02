@@ -129,7 +129,7 @@ class AlertDialog(QDialog):
         self._editing_idx = None
 
         self.setWindowTitle(f"\U0001f514 Alerts — {pair}")
-        self.setMinimumSize(680, 520)
+        self.setMinimumSize(700, 620)
         self.setStyleSheet(
             "QDialog{background:#0b0e11;}"
             "QLabel{color:#eaecef; font-size:12px;}"
@@ -197,6 +197,7 @@ class AlertDialog(QDialog):
 
         self.cb_operator = QComboBox()
         self.cb_operator.addItems(OPERATORS)
+        self.cb_operator.currentTextChanged.connect(self._on_operator_changed)
         form_cond.addRow("Operator:", self.cb_operator)
 
         self.sp_value1 = QDoubleSpinBox()
@@ -358,8 +359,11 @@ class AlertDialog(QDialog):
     def _on_action_changed(self, text: str):
         is_limit = "Limited" in text
         is_telegram = "Telegram" in text
+        is_none = "None" in text
         self.sp_order_price.setVisible(is_limit)
-        self.sp_order_qty.setVisible(is_limit or is_telegram == False and "None" not in text)
+        # Show qty for Limited and Market orders, hide for None and Telegram
+        show_qty = (is_limit or "Market" in text) and not is_none and not is_telegram
+        self.sp_order_qty.setVisible(show_qty)
         self.txt_telegram_msg.setVisible(is_telegram)
 
     def _on_browse_sound(self):
