@@ -652,14 +652,18 @@ function zoomToRecent(count){
 new QWebChannel(qt.webChannelTransport, ch => { window.Qt = ch.objects.Qt; });
 
 fliChart.subscribeClick(param => {
-  if(!param || !param.time) return;
-  const d = param.seriesData.get(fliCandles);
-  if(!d) return;
-  const price = d.close || 0;
+  if(!param || !param.point) return;
+  // Use the exact Y price where user clicked (not candle close)
+  const price = param.point.y || 0;
   if(typeof Qt !== 'undefined' && Qt.onChartCandleClick) {
-    Qt.onChartCandleClick(param.time, price);
+    Qt.onChartCandleClick(param.time || 0, price);
   }
 });
+
+// Disable right-click context menu on chart
+document.getElementById('fliChart').addEventListener('contextmenu', function(e){ e.preventDefault(); return false; });
+
+document.getElementById('charts').addEventListener('contextmenu', function(e){ e.preventDefault(); return false; });
 
 function updateUIState(fliTrend,cciVal,adxVal,obvDir,score,bbUpper,bbLower,signal){
   $FLI.textContent=fliTrend>0?'BULL':fliTrend<0?'BEAR':'FLAT';

@@ -3025,7 +3025,10 @@ class MainWindow(QWidget):
         self._draw_alert_price_lines(pair)
 
     def _draw_alert_price_lines(self, pair: str):
-        """Draw horizontal dashed lines on the chart at each alert's price level."""
+        """Draw horizontal dashed lines on the chart at each alert's price level.
+        Also evaluates alerts against the current last candle in case
+        a newly created alert already matches the current price.
+        """
         from spotbot.ui.alert_dialog import load_alerts
         alerts = load_alerts()
         pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
@@ -3041,6 +3044,12 @@ class MainWindow(QWidget):
         prices = sorted(set(prices))
         import json
         self._chart_js(pair, f"setAlertPriceLines({json.dumps(prices)});")
+
+        # Evaluate alerts against current candle (in case a new alert matches now)
+        session = self._sessions.get(pair)
+        if session and session.candles:
+            indicators = getattr(session, 'indicators', None) or {}
+            self._evaluate_alerts(pair, session.candles[-1], indicators)
 
     def _evaluate_alerts(self, pair: str, candle: list, indicators: dict = None):
         """Evaluate all active alerts for the given pair against the new candle.
@@ -3197,7 +3206,7 @@ class MainWindow(QWidget):
                 pass
 
         # Log the alert
-        self._log(
+        self._set_status(
             f"🔔 Alert triggered: {pair} {op} {v1} → {action}"
         )
 
@@ -3236,14 +3245,14 @@ class MainWindow(QWidget):
                 result = engine._execute_order("buy_signal", price, ts)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
-                    self._log(f"🔔 Alert BUY executed: {pair} @ {price:.6f}")
+                    self._set_status(f"🔔 Alert BUY executed: {pair} @ {price:.6f}")
             elif side == "sell" and engine.in_position:
                 result = engine._execute_order("sell_signal", price, ts)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
-                    self._log(f"🔔 Alert SELL executed: {pair} @ {price:.6f}")
+                    self._set_status(f"🔔 Alert SELL executed: {pair} @ {price:.6f}")
         except Exception as e:
-            self._log(f"⚠️ Alert order error: {e}")
+            self._set_status(f"⚠️ Alert order error: {e}")
 
     @staticmethod
     def _send_alert_telegram(pair: str, alert: dict, price: float):
