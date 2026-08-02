@@ -271,7 +271,6 @@ class AlertDialog(QDialog):
         self.sp_order_qty.setRange(0.0, 999999999.0)
         self.sp_order_qty.setDecimals(8)
         self.sp_order_qty.setValue(0.0)
-        self.sp_order_qty.setPlaceholderText("USDT amount")
         self.sp_order_qty.setVisible(False)
         form_action.addRow("Qty (USDT):", self.sp_order_qty)
 
