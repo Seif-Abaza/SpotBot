@@ -523,34 +523,33 @@ const fliChart = LightweightCharts.createChart(
   }
 );
 
+function _priceFmt(price){
+  if(price>=1000) return price.toFixed(2);
+  if(price>=1) return price.toFixed(4);
+  if(price>=0.01) return price.toFixed(6);
+  /* Small prices: strip leading zeros after decimal
+     e.g. 0.00000010 -> "0.10" */
+  var s=price.toFixed(8);
+  var after=s.substring(2); /* digits after "0." */
+  var i=0;
+  while(i<after.length && after[i]==='0') i++;
+  if(i>=after.length) return '0';
+  var sig=after.substring(i).replace(/0+$/,'');
+  if(sig.length<2) sig=after.substring(i,i+2);
+  return '0.'+sig;
+}
+var _priceFmtObj={type:'custom',minMove:0.00000001,formatter:_priceFmt};
+
 const fliCandles = fliChart.addCandlestickSeries({
   upColor:C.green, downColor:C.red,
   borderDownColor:C.red, borderUpColor:C.green,
   wickDownColor:C.red, wickUpColor:C.green,
-  priceFormat:{
-    type:'custom',
-    minMove:0.00000001,
-    formatter:function(price){
-      if(price>=1000) return price.toFixed(2);
-      if(price>=1) return price.toFixed(4);
-      if(price>=0.01) return price.toFixed(6);
-      /* Small prices: strip leading zeros after decimal
-         e.g. 0.00000010 -> "0.10" */
-      var s=price.toFixed(8);
-      var after=s.substring(2); /* digits after "0." */
-      var i=0;
-      while(i<after.length && after[i]==='0') i++;
-      if(i>=after.length) return '0';
-      var sig=after.substring(i).replace(/0+$/,'');
-      if(sig.length<2) sig=after.substring(i,i+2);
-      return '0.'+sig;
-    }
-  }
+  priceFormat: _priceFmtObj,
 });
 
 const fliSignalLine = fliChart.addLineSeries({
   color:C.fliBuy, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
-  priceFormat:{type:'custom',minMove:0.00000001,formatter:fliCandles.priceFormat().formatter},
+  priceFormat: _priceFmtObj,
 });
 
 // ── Alert price lines (horizontal dashed gray) ──
@@ -565,7 +564,7 @@ function setAlertPriceLines(prices){
       lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true,
-      title: 'Alert ' + fliCandles.priceFormat().formatter(prices[i]),
+      title: 'Alert ' + _priceFmt(prices[i]),
     });
     _alertPriceLines.push(pl);
   }
