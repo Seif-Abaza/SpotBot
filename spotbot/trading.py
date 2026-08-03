@@ -248,7 +248,7 @@ class TradingEngine:
 
         return None
 
-    def _execute_order(self, side: str, price: float, ts):
+    def _execute_order(self, side: str, price: float, ts, force: bool = False, override_amount: float = None):
         """Execute confirmed buy or sell order.
 
         Enforces the user's hard requirements:
@@ -258,24 +258,30 @@ class TradingEngine:
           • BUY: wallet must have enough USDT to cover the investment amount.
           • SELL: only if sell_price > buy_price (else HOLD and log a message).
           • SELL: wallet must have enough base coin to cover the sell qty.
-        """
-        # ── Master gates ──
-        if not self.trading_enabled:
-            return {
-                "action": "skipped",
-                "signal": side,
-                "note": "Trading not armed — press 'Start Trading' to enable.",
-                "ts": ts,
-            }
-        if self._halted:
-            return {
-                "action": "skipped",
-                "signal": side,
-                "note": "Engine halted — no new orders.",
-                "ts": ts,
-            }
 
-        amount_usdt = self._get_investment_amount()
+        When force=True (alert-triggered orders):
+          • Bypasses trading_enabled and _halted checks.
+          • Bypasses sell-above-entry gate (alert sell executes at any price).
+          • Uses override_amount if provided instead of _get_investment_amount().
+        """
+        # ── Master gates (bypassed for alert-forced orders) ──
+        if not force:
+            if not self.trading_enabled:
+                return {
+                    "action": "skipped",
+                    "signal": side,
+                    "note": "Trading not armed — press 'Start Trading' to enable.",
+                    "ts": ts,
+                }
+            if self._halted:
+                return {
+                    "action": "skipped",
+                    "signal": side,
+                    "note": "Engine halted — no new orders.",
+                    "ts": ts,
+                }
+
+        amount_usdt = override_amount if override_amount is not None else self._get_investment_amount()
         order_id = f"sim-{int(ts)}"
         if self._resolve_ccxt() is None:
             return None
@@ -363,7 +369,8 @@ class TradingEngine:
             entry_price = self.entry_price
 
             # ── Requirement 3: only sell if sell_price > buy_price, else HOLD ──
-            if price <= entry_price:
+            #    (bypassed for alert-forced orders — user explicitly wants to sell)
+            if not force and price <= entry_price:
                 return {
                     "action": "hold",
                     "signal": "sell_signal",

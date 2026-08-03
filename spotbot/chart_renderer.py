@@ -799,10 +799,6 @@ new ResizeObserver(entries=>{
     fliChart.resize(e.contentRect.width,h);
   }
 }).observe(document.getElementById('charts'));
-</script>
-<script>
-/* Page-readiness flag: set AFTER all chart functions are defined.
-   Python polls this to avoid running JS before the page is ready. */
 var _pageReady = true;
 </script>
 </body>

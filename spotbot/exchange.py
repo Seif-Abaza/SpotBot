@@ -217,7 +217,8 @@ class ExchangeManager:
                 "apiKey": keys.get("apiKey", ""),
                 "secret": keys.get("secret", ""),
                 "enableRateLimit": True,
-                "options": {"defaultType": "spot"},
+                "adjustForTimeDifference": True,
+                "options": {"defaultType": "spot", "recvWindow": 20000},
             }
             self.exchange = cls(config)
             self.exchange.enable_demo_trading(is_demo)
@@ -585,6 +586,8 @@ class ExchangeManager:
                 "apiKey": keys.get("apiKey", ""),
                 "secret": keys.get("secret", ""),
                 "enableRateLimit": True,
+                "adjustForTimeDifference": True,
+                "options": {"recvWindow": 20000},
             }
             self.ws_exchange = cls(config)
             self.ws_exchange.enable_demo_trading(is_demo)

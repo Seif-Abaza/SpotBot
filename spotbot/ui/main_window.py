@@ -3386,28 +3386,41 @@ class MainWindow(QWidget):
         self._set_status(f"Alert triggered: {name or pair}")
 
     def _execute_alert_order(self, pair: str, side: str, price: float, qty_usdt: float):
-        """Execute a virtual order from an alert."""
+        """Execute a virtual order from an alert.
+
+        Alert orders have HIGHEST priority — they bypass trading_enabled,
+        halted state, and sell-above-entry gates. The user explicitly
+        requested the order, so it executes regardless of indicator state.
+        """
         session = self._sessions.get(pair)
         if not session:
             return
         engine = session.engine
         if qty_usdt <= 0:
-            return
-        qty = qty_usdt / price if price > 0 else 0
-        if qty <= 0:
+            # If no explicit qty set, use engine's default investment amount
+            qty_usdt = engine._get_investment_amount()
+        if qty_usdt <= 0:
             return
         ts = int(time.time() * 1000)
         try:
             if side == "buy" and not engine.in_position:
-                result = engine._execute_order("buy_signal", price, ts)
+                result = engine._execute_order("buy_signal", price, ts, force=True, override_amount=qty_usdt)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
                     self._set_status(f"Alert BUY executed: {pair} @ {price:.6f}")
+                elif result and result.get("action") == "skipped":
+                    self._set_status(f"Alert BUY skipped: {result.get('note', '')}")
             elif side == "sell" and engine.in_position:
-                result = engine._execute_order("sell_signal", price, ts)
+                result = engine._execute_order("sell_signal", price, ts, force=True, override_amount=qty_usdt)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
                     self._set_status(f"Alert SELL executed: {pair} @ {price:.6f}")
+                elif result and result.get("action") == "skipped":
+                    self._set_status(f"Alert SELL skipped: {result.get('note', '')}")
+            elif side == "buy" and engine.in_position:
+                self._set_status(f"Alert BUY skipped: already in position for {pair}")
+            elif side == "sell" and not engine.in_position:
+                self._set_status(f"Alert SELL skipped: no position to sell for {pair}")
         except Exception as e:
             self._set_status(f"Alert order error: {e}")
 

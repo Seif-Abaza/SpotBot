@@ -37,6 +37,7 @@ class CoinTabWidget(QWidget):
         self.session = session
         self._chart_ready = False
         self._chart_js_queue: list[str] = []
+        self._html_loaded = False  # True only after load_chart_html() is called
 
         # WebChannel bridge for JS->Python communication
         self._bridge = _ChartBridge(self)
@@ -93,29 +94,24 @@ class CoinTabWidget(QWidget):
     def _on_chart_loaded(self, ok):
         if not ok:
             return
+        # Ignore loadFinished from about:blank — only process real chart HTML
+        if not self._html_loaded:
+            return
 
+        self._do_ready_check()
+
+    def _do_ready_check(self):
+        """Poll _pageReady and flush the JS queue once the page is ready."""
         def _check(result):
+            if not self._html_loaded:
+                return  # Chart was reset; stop polling
             if result:
                 self._chart_ready = True
                 pending, self._chart_js_queue = self._chart_js_queue, []
                 for code in pending:
                     self.chart_view.page().runJavaScript(code)
             else:
-                QTimer.singleShot(50, self._verify_and_flush)
-
-        self.chart_view.page().runJavaScript(
-            "typeof _pageReady !== 'undefined' && _pageReady", _check
-        )
-
-    def _verify_and_flush(self):
-        def _check(result):
-            if result:
-                self._chart_ready = True
-                pending, self._chart_js_queue = self._chart_js_queue, []
-                for code in pending:
-                    self.chart_view.page().runJavaScript(code)
-            else:
-                QTimer.singleShot(50, self._verify_and_flush)
+                QTimer.singleShot(50, self._do_ready_check)
 
         self.chart_view.page().runJavaScript(
             "typeof _pageReady !== 'undefined' && _pageReady", _check
@@ -123,6 +119,7 @@ class CoinTabWidget(QWidget):
 
     def load_chart_html(self, html: str):
         self._chart_ready = False
+        self._html_loaded = True  # Mark that real chart HTML is being loaded
         self._chart_js_queue.clear()
         self.chart_view.setHtml(html)
 
