@@ -23,9 +23,6 @@ except ImportError:
 from spotbot.constants import (
     FLOAT_EPS,
     FLI_BB_PERIOD, FLI_BB_DEV, FLI_USE_ATR, FLI_ATR_PERIOD,
-    FLI_USE_CCI, FLI_CCI_LEN, FLI_CCI_LEVEL, FLI_CCI_BUFFER,
-    FLI_USE_ADX, FLI_ADX_LEN, FLI_ADX_LEVEL,
-    FLI_USE_OBV, FLI_OBV_SMA_LEN, FLI_MIN_SCORE,
 )
 def fli_compute_atr(df: "pd.DataFrame", period: int) -> "pd.Series":
     """Average True Range."""
@@ -35,53 +32,6 @@ def fli_compute_atr(df: "pd.DataFrame", period: int) -> "pd.Series":
     tr3 = (low - close.shift(1)).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     return tr.rolling(window=period, min_periods=1).mean()
-
-
-def fli_compute_cci(df: "pd.DataFrame", period: int) -> "pd.Series":
-    """Commodity Channel Index."""
-    tp = (df["high"] + df["low"] + df["close"]) / 3.0
-    sma = tp.rolling(window=period, min_periods=1).mean()
-    mad = tp.rolling(window=period, min_periods=1).apply(
-        lambda x: np.abs(x - x.mean()).mean(), raw=True
-    )
-    return (tp - sma) / (0.015 * mad.replace(0, np.nan))
-
-
-def fli_compute_adx(df: "pd.DataFrame", period: int):
-    """Average Directional Index. Returns (plus_di, minus_di, adx)."""
-    high, low, close = df["high"], df["low"], df["close"]
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    up_move = high - high.shift(1)
-    down_move = low.shift(1) - low
-    plus_dm = pd.Series(
-        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=df.index
-    )
-    minus_dm = pd.Series(
-        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
-        index=df.index,
-    )
-
-    atr_smooth = tr.rolling(window=period, min_periods=1).mean()
-    plus_dm_smooth = plus_dm.rolling(window=period, min_periods=1).mean()
-    minus_dm_smooth = minus_dm.rolling(window=period, min_periods=1).mean()
-
-    plus_di = 100.0 * plus_dm_smooth / atr_smooth.replace(0, np.nan)
-    minus_di = 100.0 * minus_dm_smooth / atr_smooth.replace(0, np.nan)
-
-    dx = 100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    adx = dx.rolling(window=period, min_periods=1).mean()
-
-    return plus_di.fillna(0), minus_di.fillna(0), adx.fillna(0)
-
-
-def fli_compute_obv(df: "pd.DataFrame") -> "pd.Series":
-    """On-Balance Volume."""
-    direction = np.sign(df["close"].diff()).fillna(0)
-    return (direction * df["volume"]).cumsum()
 
 
 def fli_compute_all_indicators(df: "pd.DataFrame", params: dict) -> "pd.DataFrame":
@@ -145,14 +95,6 @@ def fli_compute_all_indicators(df: "pd.DataFrame", params: dict) -> "pd.DataFram
     df["buy_signal"] = df["raw_buy"]
     df["sell_signal"] = df["raw_sell"]
 
-    # Legacy columns kept for backward compat with chart display
-    df["cci"] = 0.0
-    df["adx"] = 0.0
-    df["obv"] = 0.0
-    df["obv_sma"] = 0.0
-    df["score_buy"] = df["raw_buy"].astype(int)
-    df["score_sell"] = df["raw_sell"].astype(int)
-
     return df
 
 
@@ -196,20 +138,10 @@ def _compute_fli_data(candles):
             return None
         df = fli_compute_all_indicators(df, {})
         last = df.iloc[-1]
-        score_buy = 0
-        score_sell = 0
+        # Pure FLI: 1=buy (trend reversal -1→1), -1=sell (1→-1), 0=wait
         if last.get("buy_signal", False):
-            score_buy = int(last.get("score_buy", 0))
-        if last.get("sell_signal", False):
-            score_sell = int(last.get("score_sell", 0))
-
-        # Signal is valid only if the raw reversal fired AND confirmation score is met
-        buy_ok = last.get("buy_signal", False) and score_buy >= FLI_MIN_SCORE
-        sell_ok = last.get("sell_signal", False) and score_sell >= FLI_MIN_SCORE
-
-        if buy_ok:
             signal = "BUY"
-        elif sell_ok:
+        elif last.get("sell_signal", False):
             signal = "SELL"
         else:
             signal = "WAIT"
@@ -221,12 +153,8 @@ def _compute_fli_data(candles):
             "itrend": df["itrend"].tolist(),
             "signal": signal,
             "fli_trend": fli_trend,
-            "score_buy": score_buy,
-            "score_sell": score_sell,
             "bb_upper_val": float(last.get("bb_upper", 0)),
             "bb_lower_val": float(last.get("bb_lower", 0)),
-            "cci": float(last.get("cci", 0)),
-            "adx": float(last.get("adx", 0)),
         }
     except Exception:
         return None
