@@ -1,8 +1,10 @@
 """Main Window: orchestrates all subsystems and UI components."""
 
 import json
+import os
 import sys
 import time
+import urllib.request
 from collections import deque
 from datetime import datetime, timezone
 
@@ -3007,17 +3009,21 @@ class MainWindow(QWidget):
     # ─────────────────────────────────────────────────────────────────────
 
     def _on_chart_candle_click(self, pair: str, time: int, price: float):
-        """Open the Alert dialog when user clicks a candle on the chart."""
+        """Open the Alert dialog when user clicks the chart."""
         from spotbot.ui.alert_dialog import AlertDialog, load_alerts
+        session = self._sessions.get(pair)
+        chart_tf = session.timeframe if session else "1h"
         dlg = AlertDialog(
             pair=pair,
             candle_time=time,
             candle_price=price,
+            chart_interval=chart_tf,
             parent=self,
         )
         dlg.alert_created.connect(lambda d: self._on_alerts_changed(pair))
+        dlg.alert_deleted.connect(lambda: self._on_alerts_changed(pair))
         dlg.exec()
-        # Always refresh alert lines after dialog closes (user may have deleted)
+        # Always refresh alert lines after dialog closes
         self._draw_alert_price_lines(pair)
 
     def _on_alerts_changed(self, pair: str):
@@ -3025,129 +3031,193 @@ class MainWindow(QWidget):
         self._draw_alert_price_lines(pair)
 
     def _draw_alert_price_lines(self, pair: str):
-        """Draw horizontal dashed lines on the chart at each alert's price level.
-        Also evaluates alerts against the current last candle in case
-        a newly created alert already matches the current price.
-        """
+        """Draw horizontal dashed lines on the chart at each alert's price levels."""
         from spotbot.ui.alert_dialog import load_alerts
         alerts = load_alerts()
         pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
         prices = []
         for a in pair_alerts:
-            v1 = a.get("value1", 0)
-            v2 = a.get("value2", 0)
-            if v1 and v1 > 0:
-                prices.append(float(v1))
-            if v2 and v2 > 0:
-                prices.append(float(v2))
-        # Deduplicate
+            for c in a.get("conditions", []):
+                if c.get("condition_type") == "Price":
+                    v1 = c.get("value1", 0)
+                    v2 = c.get("value2", 0)
+                    if v1 and v1 > 0:
+                        prices.append(float(v1))
+                    if v2 and v2 > 0:
+                        prices.append(float(v2))
+            if not a.get("conditions"):
+                v1 = a.get("value1", 0)
+                v2 = a.get("value2", 0)
+                if v1 and v1 > 0:
+                    prices.append(float(v1))
+                if v2 and v2 > 0:
+                    prices.append(float(v2))
         prices = sorted(set(prices))
-        import json
         self._chart_js(pair, f"setAlertPriceLines({json.dumps(prices)});")
-
-        # Evaluate alerts against current candle (in case a new alert matches now)
         session = self._sessions.get(pair)
         if session and session.candles:
             indicators = getattr(session, 'indicators', None) or {}
             self._evaluate_alerts(pair, session.candles[-1], indicators)
 
     def _evaluate_alerts(self, pair: str, candle: list, indicators: dict = None):
-        """Evaluate all active alerts for the given pair against the new candle.
+        """Evaluate all active alerts for the given pair.
 
-        Checks price-based and indicator-based conditions and triggers
-        the configured action (sound, order, telegram) when matched.
+        Supports multi-condition, 4 trigger frequency modes, expiration,
+        and the new action system (popup, sound, limit order).
         """
-        from spotbot.ui.alert_dialog import load_alerts, save_alerts
+        from spotbot.ui.alert_dialog import load_alerts, save_alerts, append_alert_log
         alerts = load_alerts()
         pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
         if not pair_alerts:
             return
-
         close = float(candle[4])
-        prev_close = 0.0
-        triggered = []
-
-        # Get previous close from session history
+        candle_ts = int(candle[0]) if candle else 0
+        now_ms = int(time.time() * 1000)
         session = self._sessions.get(pair)
-        if session and len(session.candles) >= 2:
-            prev_close = float(session.candles[-2][4])
-
+        candles = session.candles if session else [candle]
+        needs_save = False
         for alert in pair_alerts:
-            if alert.get("fired") and alert.get("trigger") == "Once only":
+            # Expiration check
+            exp_mode = alert.get("expire_mode", "No Expiration")
+            if "Date" in exp_mode and alert.get("expiration"):
+                try:
+                    exp_dt = datetime.fromisoformat(alert["expiration"])
+                    if datetime.now() >= exp_dt:
+                        alert["enabled"] = False
+                        needs_save = True
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            if "Trigger" in exp_mode and alert.get("fired"):
+                alert["enabled"] = False
+                needs_save = True
                 continue
-
-            op = alert.get("operator", "")
-            cond_type = alert.get("condition_type", "Price")
-            v1 = float(alert.get("value1", 0))
-            v2 = float(alert.get("value2", 0))
-            matched = False
-
-            if cond_type == "Price":
-                matched = self._check_price_condition(op, close, prev_close, v1, v2)
-            elif cond_type == "Indicator" and indicators:
-                ind_name = alert.get("indicator", "")
-                ind_val = self._get_indicator_value(ind_name, indicators)
-                if ind_val is not None:
-                    matched = self._check_price_condition(op, ind_val, prev_close, v1, v2)
-
-            if matched:
-                triggered.append(alert)
-                # Mark as fired if once-only
-                if alert.get("trigger") == "Once only":
-                    alert["fired"] = True
-                self._trigger_alert_action(pair, alert, close)
-
-        # Save updated fired states
-        if any(a.get("fired") for a in pair_alerts):
-            # Merge updated alerts back
+            # Frequency check
+            trigger = alert.get("trigger", "Once only")
+            if trigger == "Once only" and alert.get("fired"):
+                continue
+            if trigger == "Once per minute":
+                last_ts = alert.get("last_fire_ts", 0)
+                if now_ms - last_ts < 60000:
+                    continue
+            # Evaluate conditions
+            conditions = alert.get("conditions", [])
+            if not conditions:
+                conditions = [{
+                    "condition_type": alert.get("condition_type", "Price"),
+                    "indicator": alert.get("indicator", ""),
+                    "operator": alert.get("operator", ""),
+                    "value1": alert.get("value1", 0),
+                    "value2": alert.get("value2", 0),
+                    "bars": 0,
+                    "interval": "",
+                }]
+            all_matched = True
+            for cond in conditions:
+                matched = self._evaluate_single_condition(cond, close, candles, indicators)
+                if not matched:
+                    all_matched = False
+                    break
+            if not all_matched:
+                continue
+            # Once per bar close: only trigger once per candle timestamp
+            if trigger == "Once per bar close":
+                if candle_ts == alert.get("last_fire_bar_ts", 0):
+                    continue
+                alert["last_fire_bar_ts"] = candle_ts
+            alert["fired"] = True
+            alert["fire_count"] = alert.get("fire_count", 0) + 1
+            alert["last_fire_ts"] = now_ms
+            needs_save = True
+            self._trigger_alert_action(pair, alert, close)
+        if needs_save:
             for updated_a in pair_alerts:
+                alert_id = updated_a.get("id", "")
                 for i, orig_a in enumerate(alerts):
-                    if (orig_a.get("pair") == updated_a.get("pair")
-                            and orig_a.get("value1") == updated_a.get("value1")
-                            and orig_a.get("operator") == updated_a.get("operator")):
+                    if orig_a.get("id") == alert_id:
                         alerts[i] = updated_a
                         break
+                    if not orig_a.get("id") and not alert_id:
+                        if (orig_a.get("pair") == updated_a.get("pair")
+                                and orig_a.get("value1") == updated_a.get("value1")
+                                and orig_a.get("operator") == updated_a.get("operator")):
+                            alerts[i] = updated_a
+                            break
             save_alerts(alerts)
 
+    def _evaluate_single_condition(self, cond: dict, close: float,
+                                     candles: list, indicators: dict) -> bool:
+        """Evaluate a single condition against current data."""
+        cond_type = cond.get("condition_type", "Price")
+        op = cond.get("operator", "")
+        v1 = float(cond.get("value1", 0))
+        v2 = float(cond.get("value2", 0))
+        bars = int(cond.get("bars", 0))
+        if cond_type == "Indicator" and indicators:
+            ind_name = cond.get("indicator", "")
+            val = self._get_indicator_value(ind_name, indicators)
+            if val is None:
+                return False
+            prev_val = self._get_indicator_prev_value(ind_name, indicators)
+        else:
+            val = close
+            prev_val = float(candles[-2][4]) if len(candles) >= 2 else val
+        # For Moving operators, check over N bars
+        if op in ("Moving Up", "Moving Down", "Moving Up %", "Moving Down %"):
+            bars = max(bars, 2)
+            if len(candles) < bars:
+                return False
+            old_val = float(candles[-bars][4]) if cond_type == "Price" else val
+            if cond_type == "Indicator" and indicators:
+                old_val = self._get_indicator_value_at(ind_name, indicators, -(bars))
+                if old_val is None:
+                    old_val = prev_val
+            if op == "Moving Up":
+                return val > old_val
+            elif op == "Moving Down":
+                return val < old_val
+            elif op == "Moving Up %":
+                if old_val > 0:
+                    pct = ((val - old_val) / old_val) * 100
+                    return pct >= v1
+            elif op == "Moving Down %":
+                if old_val > 0:
+                    pct = ((old_val - val) / old_val) * 100
+                    return pct >= v1
+            return False
+        return self._check_condition(op, val, prev_val, v1, v2)
+
     @staticmethod
-    def _check_price_condition(op: str, value: float, prev_value: float,
-                                v1: float, v2: float) -> bool:
-        """Check if a value satisfies the alert operator condition."""
-        if op == "Greater Than":
-            return value > v1
-        elif op == "Less Than":
-            return value < v1
-        elif op == "Crossing":
+    def _check_condition(op: str, value: float, prev_value: float,
+                          v1: float, v2: float) -> bool:
+        """Core condition checker for 9 non-Moving operators."""
+        if op == "Crossing":
             return (prev_value <= v1 <= value) or (prev_value >= v1 >= value)
         elif op == "Crossing Up":
             return prev_value <= v1 < value
         elif op == "Crossing Down":
             return prev_value >= v1 > value
+        elif op == "Greater Than":
+            return value > v1
+        elif op == "Less Than":
+            return value < v1
         elif op == "Entering Channel":
-            return v2 <= value <= v1 and not (v2 <= prev_value <= v1)
+            lo, hi = min(v1, v2), max(v1, v2)
+            return lo <= value <= hi and not (lo <= prev_value <= hi)
         elif op == "Exiting Channel":
-            return (v2 <= prev_value <= v1) and not (v2 <= value <= v1)
+            lo, hi = min(v1, v2), max(v1, v2)
+            return (lo <= prev_value <= hi) and not (lo <= value <= hi)
         elif op == "Inside Channel":
-            return v2 <= value <= v1
+            lo, hi = min(v1, v2), max(v1, v2)
+            return lo <= value <= hi
         elif op == "Outside Channel":
-            return value > v1 or value < v2
-        elif op == "Moving Up":
-            return value > prev_value
-        elif op == "Moving Down":
-            return value < prev_value
-        elif op == "Moving Up %":
-            if prev_value > 0:
-                pct = ((value - prev_value) / prev_value) * 100
-                return pct >= v1
-        elif op == "Moving Down %":
-            if prev_value > 0:
-                pct = ((prev_value - value) / prev_value) * 100
-                return pct >= v1
+            lo, hi = min(v1, v2), max(v1, v2)
+            return value > hi or value < lo
         return False
 
     @staticmethod
     def _get_indicator_value(name: str, indicators: dict) -> float | None:
-        """Extract an indicator value from the indicators dict."""
+        """Extract the latest indicator value."""
         if not indicators:
             return None
         try:
@@ -3182,90 +3252,175 @@ class MainWindow(QWidget):
             pass
         return None
 
-    def _trigger_alert_action(self, pair: str, alert: dict, price: float):
-        """Execute the configured action for a triggered alert."""
-        action = alert.get("action", "None (Notify only)")
-        op = alert.get("operator", "")
-        v1 = alert.get("value1", 0)
+    @staticmethod
+    def _get_indicator_prev_value(name: str, indicators: dict) -> float:
+        """Extract the previous (second-to-last) indicator value."""
+        if not indicators:
+            return 0.0
+        try:
+            key_map = {
+                "RSI": "rsi", "MACD Line": "macd", "MACD Signal": "macd_signal",
+                "CCI": "cci", "ADX": "adx", "OBV": "obv",
+                "BB Upper": "bb_upper", "BB Lower": "bb_lower", "Trendline": "trendline",
+            }
+            for key, ind_key in key_map.items():
+                if key in name:
+                    vals = indicators.get(ind_key, [])
+                    return float(vals[-2]) if len(vals) >= 2 else 0.0
+        except (TypeError, ValueError, IndexError):
+            pass
+        return 0.0
 
-        # Play notification sound
-        sound_path = alert.get("sound_path", "")
-        if sound_path:
+    @staticmethod
+    def _get_indicator_value_at(name: str, indicators: dict, offset: int) -> float | None:
+        """Extract an indicator value at a historical offset."""
+        if not indicators:
+            return None
+        try:
+            key_map = {
+                "RSI": "rsi", "MACD Line": "macd", "MACD Signal": "macd_signal",
+                "CCI": "cci", "ADX": "adx", "OBV": "obv",
+                "BB Upper": "bb_upper", "BB Lower": "bb_lower", "Trendline": "trendline",
+            }
+            for key, ind_key in key_map.items():
+                if key in name:
+                    vals = indicators.get(ind_key, [])
+                    idx = len(vals) + offset
+                    if 0 <= idx < len(vals):
+                        return float(vals[idx])
+        except (TypeError, ValueError, IndexError):
+            pass
+        return None
+
+    def _trigger_alert_action(self, pair: str, alert: dict, price: float):
+        """Execute the configured actions for a triggered alert.
+
+        Supports new format (actions dict) and legacy format (action string).
+        """
+        from spotbot.ui.alert_dialog import append_alert_log
+        actions = alert.get("actions", {})
+        name = alert.get("name", "")
+        conds = alert.get("conditions", [alert])
+        # Build formatted message with placeholders
+        msg_template = alert.get("message", "")
+        first_cond = conds[0] if conds else {}
+        formatted_msg = msg_template
+        if msg_template:
+            formatted_msg = msg_template.replace("{{pair}}", str(pair))
+            formatted_msg = formatted_msg.replace("{{price}}", f"{price:.6g}")
+            formatted_msg = formatted_msg.replace("{{indicator}}", first_cond.get("indicator", ""))
+            formatted_msg = formatted_msg.replace("{{value}}", str(first_cond.get("value1", 0)))
+            formatted_msg = formatted_msg.replace("{{operator}}", first_cond.get("operator", ""))
+            formatted_msg = formatted_msg.replace("{{time}}", datetime.now().strftime("%H:%M:%S"))
+        # Log to alert log file
+        log_entry = {
+            "pair": pair, "name": name, "message": formatted_msg,
+            "price": price, "conditions": conds,
+        }
+        append_alert_log(log_entry)
+        # Pop-up notification
+        show_popup = actions.get("popup", True)
+        if show_popup:
+            popup_title = f"Alert: {name or pair}"
+            popup_msg = formatted_msg or f"{pair} @ {price:.6g}"
+            if not name:
+                parts = []
+                for c in conds:
+                    ct = c.get("condition_type", "Price")
+                    op = c.get("operator", "")
+                    v1 = c.get("value1", 0)
+                    ind = c.get("indicator", "")
+                    if ct == "Indicator":
+                        parts.append(f"{ind} {op} {v1}")
+                    else:
+                        parts.append(f"Price {op} {v1}")
+                popup_msg = " | ".join(parts) + f"\n{pair} @ {price:.6g}"
+            QMessageBox.information(self, popup_title, popup_msg)
+        # Play sound
+        play_sound = actions.get("sound", False)
+        sound_path = actions.get("sound_path", "")
+        if play_sound:
             try:
                 import subprocess
                 import sys
                 if sys.platform == "win32":
                     import winsound
-                    winsound.PlaySound(sound_path, winsound.SND_FILENAME)
+                    if sound_path and os.path.exists(sound_path):
+                        winsound.PlaySound(sound_path, winsound.SND_FILENAME)
+                    else:
+                        winsound.Beep(2000, 300)
                 else:
-                    subprocess.Popen(
-                        ["aplay", "-q", sound_path],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    )
+                    if sound_path and os.path.exists(sound_path):
+                        subprocess.Popen(
+                            ["aplay", "-q", sound_path],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        subprocess.Popen(
+                            ["paplay", "-q", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
             except Exception:
                 pass
+        # Trading action (new format)
+        order_type = actions.get("order_type", "None (Notify only)")
+        order_price = float(actions.get("order_price", 0))
+        order_qty = float(actions.get("order_qty", 0))
+        if "Buy" in order_type:
+            exec_price = order_price if order_price > 0 else price
+            self._execute_alert_order(pair, "buy", exec_price, order_qty)
+        elif "Sell" in order_type:
+            exec_price = order_price if order_price > 0 else price
+            self._execute_alert_order(pair, "sell", exec_price, order_qty)
+        # Legacy action format (backwards compat)
+        if not actions and alert.get("action"):
+            legacy_action = alert.get("action", "")
+            if "Telegram" in legacy_action:
+                self._send_alert_telegram(pair, alert, price)
+            elif "Market Buy" in legacy_action or "Limited Buy" in legacy_action:
+                lp = float(alert.get("order_price", price))
+                self._execute_alert_order(pair, "buy", lp, float(alert.get("order_qty", 0)))
+            elif "Market Sell" in legacy_action or "Limited Sell" in legacy_action:
+                lp = float(alert.get("order_price", price))
+                self._execute_alert_order(pair, "sell", lp, float(alert.get("order_qty", 0)))
+        self._set_status(f"Alert triggered: {name or pair}")
 
-        # Log the alert
-        self._set_status(
-            f"🔔 Alert triggered: {pair} {op} {v1} → {action}"
-        )
-
-        # Execute trading action
-        if "Market Buy" in action:
-            self._execute_alert_order(pair, "buy", price, alert)
-        elif "Market Sell" in action:
-            self._execute_alert_order(pair, "sell", price, alert)
-        elif "Limited Buy" in action:
-            limit_price = float(alert.get("order_price", price))
-            self._execute_alert_order(pair, "buy", limit_price, alert)
-        elif "Limited Sell" in action:
-            limit_price = float(alert.get("order_price", price))
-            self._execute_alert_order(pair, "sell", limit_price, alert)
-        elif "Telegram" in action:
-            self._send_alert_telegram(pair, alert, price)
-
-    def _execute_alert_order(self, pair: str, side: str, price: float, alert: dict):
-        """Execute a virtual order from an alert (works in both live and sim mode)."""
-        import math
+    def _execute_alert_order(self, pair: str, side: str, price: float, qty_usdt: float):
+        """Execute a virtual order from an alert."""
         session = self._sessions.get(pair)
         if not session:
             return
         engine = session.engine
-        qty_usdt = float(alert.get("order_qty", 0))
         if qty_usdt <= 0:
             return
         qty = qty_usdt / price if price > 0 else 0
         if qty <= 0:
             return
-
-        # Use the trading engine's virtual order path
         ts = int(time.time() * 1000)
         try:
             if side == "buy" and not engine.in_position:
                 result = engine._execute_order("buy_signal", price, ts)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
-                    self._set_status(f"🔔 Alert BUY executed: {pair} @ {price:.6f}")
+                    self._set_status(f"Alert BUY executed: {pair} @ {price:.6f}")
             elif side == "sell" and engine.in_position:
                 result = engine._execute_order("sell_signal", price, ts)
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
-                    self._set_status(f"🔔 Alert SELL executed: {pair} @ {price:.6f}")
+                    self._set_status(f"Alert SELL executed: {pair} @ {price:.6f}")
         except Exception as e:
-            self._set_status(f"⚠️ Alert order error: {e}")
+            self._set_status(f"Alert order error: {e}")
 
     @staticmethod
     def _send_alert_telegram(pair: str, alert: dict, price: float):
         """Send a Telegram message for a triggered alert."""
         from spotbot.ui.alert_dialog import load_telegram_config
-        import json
-        import urllib.request
         config = load_telegram_config()
         token = config.get("bot_token", "")
         chat_id = config.get("chat_id", "")
         if not token or not chat_id:
             return
-        msg = alert.get("telegram_msg", "") or f"🔔 Alert: {pair} {alert.get('operator')} {alert.get('value1')} @ {price}"
+        msg = alert.get("telegram_msg", "") or f"Alert: {pair} {alert.get('operator')} {alert.get('value1')} @ {price}"
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = json.dumps({"chat_id": chat_id, "text": msg}).encode()
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
