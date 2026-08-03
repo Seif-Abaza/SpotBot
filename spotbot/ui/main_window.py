@@ -1437,20 +1437,8 @@ class MainWindow(QWidget):
             )
 
     def _update_fli_info_panel(self, pair: str, row):
-        """Push the last bar's indicator readings into the on-chart info box."""
+        """Push the last bar's FLI trend into the on-chart info box."""
         fli_trend = int(row.get("itrend", 0))
-        cci_val = float(row.get("cci", 0)) if not pd.isna(row.get("cci", 0)) else 0.0
-        adx_val = float(row.get("adx", 0)) if not pd.isna(row.get("adx", 0)) else 0.0
-        obv_val = float(row.get("obv", 0)) if not pd.isna(row.get("obv", 0)) else 0.0
-        obv_sma = (
-            float(row.get("obv_sma", 0)) if not pd.isna(row.get("obv_sma", 0)) else 0.0
-        )
-        obv_dir = 1 if obv_val > obv_sma else (-1 if obv_val < obv_sma else 0)
-        score = (
-            int(row.get("score_buy", 0))
-            if fli_trend > 0
-            else int(row.get("score_sell", 0))
-        )
         bbu = row.get("bb_upper", 0.0)
         bbl = row.get("bb_lower", 0.0)
         bbu = 0.0 if pd.isna(bbu) else float(bbu)
@@ -1462,8 +1450,7 @@ class MainWindow(QWidget):
             signal = "SELL"
         self._chart_js(
             pair,
-            f"updateUIState({fli_trend},{cci_val:.1f},{adx_val:.1f},{obv_dir},{score},"
-            f"{bbu:.4f},{bbl:.4f},'{signal}');",
+            f"updateUIState({fli_trend},{bbu:.4f},{bbl:.4f},'{signal}');",
         )
 
     def _refresh_fli_trade_panel(self, pair: str):
@@ -3350,16 +3337,67 @@ class MainWindow(QWidget):
                     else:
                         winsound.Beep(2000, 300)
                 else:
+                    import shutil
+                    played = False
+                    # Try the user-specified sound file first
                     if sound_path and os.path.exists(sound_path):
-                        subprocess.Popen(
-                            ["aplay", "-q", sound_path],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        )
-                    else:
-                        subprocess.Popen(
-                            ["paplay", "-q", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        )
+                        for player in ("ffplay", "paplay", "aplay", "mpv"):
+                            bin_path = shutil.which(player)
+                            if not bin_path:
+                                continue
+                            try:
+                                if player == "ffplay":
+                                    subprocess.Popen(
+                                        [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", sound_path],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    )
+                                elif player == "mpv":
+                                    subprocess.Popen(
+                                        [bin_path, "--no-video", "--no-terminal", sound_path],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    )
+                                else:
+                                    subprocess.Popen(
+                                        [bin_path, "-q", sound_path],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    )
+                                played = True
+                                break
+                            except Exception:
+                                continue
+                    # Fallback: system bell sound
+                    if not played:
+                        sfx_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "SFX")
+                        fallback_candidates = [
+                            os.path.join(sfx_dir, "notif.wav"),
+                            "/usr/share/sounds/freedesktop/stereo/bell.oga",
+                        ]
+                        for fb_path in fallback_candidates:
+                            if os.path.exists(fb_path):
+                                for player in ("ffplay", "paplay", "aplay", "mpv"):
+                                    bin_path = shutil.which(player)
+                                    if not bin_path:
+                                        continue
+                                    try:
+                                        if player == "ffplay":
+                                            subprocess.Popen(
+                                                [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", fb_path],
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                            )
+                                        elif player == "mpv":
+                                            subprocess.Popen(
+                                                [bin_path, "--no-video", "--no-terminal", fb_path],
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                            )
+                                        else:
+                                            subprocess.Popen(
+                                                [bin_path, "-q", fb_path],
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                            )
+                                        break
+                                    except Exception:
+                                        continue
+                                break
             except Exception:
                 pass
         # Trading action (new format)

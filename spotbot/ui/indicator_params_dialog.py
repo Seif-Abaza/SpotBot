@@ -29,36 +29,20 @@ DEFAULTS = {
     "bb_dev": 0.6,
     "use_atr": True,
     "atr_period": 9,
-    "use_cci": True,
-    "cci_len": 20,
-    "cci_level": 100.0,
-    "cci_buffer": 0.0,
-    "use_adx": True,
-    "adx_len": 14,
-    "adx_level": 20,
-    "use_obv": True,
-    "obv_sma_len": 15,
-    "min_score": 1,
 }
 
 
 class IndicatorParamsDialog(QDialog):
     """Modal dialog to view / edit FLI indicator parameters.
 
-    Landscape layout with all parameters visible across the screen.
-
-    Usage::
-
-        dlg = IndicatorParamsDialog(current_params, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_params = dlg.get_params()
+    Simplified: only BB and ATR params. CCI/ADX/OBV removed.
     """
 
     params_changed = Signal(dict)  # emitted on OK with the full param dict
 
     def __init__(self, current_params: dict | None = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("\u2699 Indicator Parameters")
+        self.setWindowTitle("\u2699 FLI Parameters")
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
@@ -84,7 +68,7 @@ class IndicatorParamsDialog(QDialog):
         if current_params:
             params.update(current_params)
 
-        # ── Main layout: vertical (title row + grid of groups + buttons) ──
+        # ── Main layout: vertical (title row + groups + buttons) ──
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -94,23 +78,23 @@ class IndicatorParamsDialog(QDialog):
         form_src = QFormLayout(grp_src)
         form_src.setContentsMargins(8, 14, 8, 8)
         self.cb_signal_source = QComboBox()
-        self.cb_signal_source.addItem("FLI (Trendline + BB + CCI + ADX + OBV)", "fli")
+        self.cb_signal_source.addItem("FLI (Trendline + BB + ATR)", "fli")
         self.cb_signal_source.addItem("RSI + MACD (classic)", "rsi_macd")
         idx = self.cb_signal_source.findData(params.get("signal_source", "fli"))
         if idx >= 0:
             self.cb_signal_source.setCurrentIndex(idx)
         self.cb_signal_source.setToolTip(
-            "FLI: uses trendline reversals confirmed by CCI/ADX/OBV\n"
+            "FLI: uses trendline reversals (1=buy, -1=sell, 0=wait)\n"
             "RSI+MACD: uses RSI oversold/overbought and MACD crossovers"
         )
         form_src.addRow("Source:", self.cb_signal_source)
         main_layout.addWidget(grp_src)
 
-        # ── Grid layout: 3 columns x 2 rows for all parameter groups ──
+        # ── Grid layout: 2 columns for BB and ATR ──
         grid = QGridLayout()
         grid.setSpacing(8)
 
-        # Row 0, Col 0: Bollinger Bands
+        # Col 0: Bollinger Bands
         grp_bb = QGroupBox("Bollinger Bands")
         form_bb = QFormLayout(grp_bb)
         form_bb.setContentsMargins(8, 14, 8, 8)
@@ -127,7 +111,7 @@ class IndicatorParamsDialog(QDialog):
         form_bb.addRow("BB Deviation:", self.sp_bb_dev)
         grid.addWidget(grp_bb, 0, 0)
 
-        # Row 0, Col 1: ATR
+        # Col 1: ATR
         grp_atr = QGroupBox("ATR (Average True Range)")
         form_atr = QFormLayout(grp_atr)
         form_atr.setContentsMargins(8, 14, 8, 8)
@@ -141,85 +125,6 @@ class IndicatorParamsDialog(QDialog):
         form_atr.addRow("ATR Period:", self.sp_atr_period)
         grid.addWidget(grp_atr, 0, 1)
 
-        # Row 0, Col 2: Signal Score
-        grp_score = QGroupBox("Signal Score")
-        form_score = QFormLayout(grp_score)
-        form_score.setContentsMargins(8, 14, 8, 8)
-        self.sp_min_score = QSpinBox()
-        self.sp_min_score.setRange(0, 3)
-        self.sp_min_score.setToolTip(
-            "Minimum confirmations required (out of enabled filters: CCI, ADX, OBV).\n"
-            "0 = any signal passes, 1 = at least 1 filter must confirm, etc."
-        )
-        self.sp_min_score.setValue(int(params["min_score"]))
-        form_score.addRow("Min Score:", self.sp_min_score)
-        grid.addWidget(grp_score, 0, 2)
-
-        # Row 1, Col 0: CCI
-        grp_cci = QGroupBox("CCI (Commodity Channel Index)")
-        form_cci = QFormLayout(grp_cci)
-        form_cci.setContentsMargins(8, 14, 8, 8)
-        self.cb_use_cci = QCheckBox("Enable CCI filter")
-        self.cb_use_cci.setChecked(bool(params["use_cci"]))
-        form_cci.addRow(self.cb_use_cci)
-
-        self.sp_cci_len = QSpinBox()
-        self.sp_cci_len.setRange(2, 100)
-        self.sp_cci_len.setValue(int(params["cci_len"]))
-        form_cci.addRow("CCI Length:", self.sp_cci_len)
-
-        self.sp_cci_level = QDoubleSpinBox()
-        self.sp_cci_level.setRange(10.0, 500.0)
-        self.sp_cci_level.setSingleStep(10.0)
-        self.sp_cci_level.setDecimals(1)
-        self.sp_cci_level.setValue(float(params["cci_level"]))
-        form_cci.addRow("CCI Level:", self.sp_cci_level)
-
-        self.sp_cci_buffer = QDoubleSpinBox()
-        self.sp_cci_buffer.setRange(0.0, 50.0)
-        self.sp_cci_buffer.setSingleStep(1.0)
-        self.sp_cci_buffer.setDecimals(1)
-        self.sp_cci_buffer.setValue(float(params["cci_buffer"]))
-        form_cci.addRow("CCI Buffer:", self.sp_cci_buffer)
-        grid.addWidget(grp_cci, 1, 0)
-
-        # Row 1, Col 1: ADX
-        grp_adx = QGroupBox("ADX (Average Directional Index)")
-        form_adx = QFormLayout(grp_adx)
-        form_adx.setContentsMargins(8, 14, 8, 8)
-        self.cb_use_adx = QCheckBox("Enable ADX filter")
-        self.cb_use_adx.setChecked(bool(params["use_adx"]))
-        form_adx.addRow(self.cb_use_adx)
-
-        self.sp_adx_len = QSpinBox()
-        self.sp_adx_len.setRange(2, 100)
-        self.sp_adx_len.setValue(int(params["adx_len"]))
-        form_adx.addRow("ADX Length:", self.sp_adx_len)
-
-        self.sp_adx_level = QDoubleSpinBox()
-        self.sp_adx_level.setRange(5.0, 100.0)
-        self.sp_adx_level.setSingleStep(5.0)
-        self.sp_adx_level.setDecimals(1)
-        self.sp_adx_level.setValue(float(params["adx_level"]))
-        form_adx.addRow("ADX Level:", self.sp_adx_level)
-        grid.addWidget(grp_adx, 1, 1)
-
-        # Row 1, Col 2: OBV
-        grp_obv = QGroupBox("OBV (On-Balance Volume)")
-        form_obv = QFormLayout(grp_obv)
-        form_obv.setContentsMargins(8, 14, 8, 8)
-        self.cb_use_obv = QCheckBox("Enable OBV filter")
-        self.cb_use_obv.setChecked(bool(params["use_obv"]))
-        form_obv.addRow(self.cb_use_obv)
-
-        self.sp_obv_sma_len = QSpinBox()
-        self.sp_obv_sma_len.setRange(2, 200)
-        self.sp_obv_sma_len.setValue(int(params["obv_sma_len"]))
-        form_obv.addRow("OBV SMA Length:", self.sp_obv_sma_len)
-        grid.addWidget(grp_obv, 1, 2)
-
-        grid.setRowStretch(0, 1)
-        grid.setRowStretch(1, 1)
         main_layout.addLayout(grid, 1)
 
         # ── Buttons ──
@@ -230,7 +135,7 @@ class IndicatorParamsDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_cancel)
 
-        self.btn_apply = QPushButton("✅ Apply")
+        self.btn_apply = QPushButton("\u2705 Apply")
         self.btn_apply.setDefault(True)
         self.btn_apply.clicked.connect(self._apply)
         btn_row.addWidget(self.btn_apply)
@@ -250,14 +155,4 @@ class IndicatorParamsDialog(QDialog):
             "bb_dev": self.sp_bb_dev.value(),
             "use_atr": self.cb_use_atr.isChecked(),
             "atr_period": self.sp_atr_period.value(),
-            "use_cci": self.cb_use_cci.isChecked(),
-            "cci_len": self.sp_cci_len.value(),
-            "cci_level": self.sp_cci_level.value(),
-            "cci_buffer": self.sp_cci_buffer.value(),
-            "use_adx": self.cb_use_adx.isChecked(),
-            "adx_len": self.sp_adx_len.value(),
-            "adx_level": self.sp_adx_level.value(),
-            "use_obv": self.cb_use_obv.isChecked(),
-            "obv_sma_len": self.sp_obv_sma_len.value(),
-            "min_score": self.sp_min_score.value(),
         }

@@ -94,6 +94,10 @@ class TradingEngine:
         self._last_fill_price = 0.0
         self._last_fill_qty = 0.0
         self.accumulated_pnl = 0.0
+        # Buy-sell cycle: after a sell, only re-buy if price is at or below
+        # the sell price, or at most REBUY_MAX_PCT_ABOVE above it (3%).
+        self._last_sell_price = 0.0
+        self.REBUY_MAX_PCT_ABOVE = 0.03  # 3%
         self.pair = ""
         self.ccxt = None
         # ── Trading gates (user must explicitly arm trading) ──
@@ -287,6 +291,24 @@ class TradingEngine:
             return None
 
         if side == "buy_signal" and not self.in_position:
+            # ── Buy-sell cycle gate: after a sell, only re-buy if price is
+            #    at or below the last sell price, or at most 3% above it.
+            #    This prevents buying back at a significantly worse price.
+            #    Bypassed for alert-forced orders.
+            if not force and self._last_sell_price > 0:
+                max_rebuy = self._last_sell_price * (1.0 + self.REBUY_MAX_PCT_ABOVE)
+                if price > max_rebuy:
+                    return {
+                        "action": "skipped",
+                        "signal": "buy_signal",
+                        "note": (
+                            f"Price {price:.6f} > max rebuy {max_rebuy:.6f} "
+                            f"(last sell {self._last_sell_price:.6f} + 3%) — "
+                            f"waiting for lower entry."
+                        ),
+                        "ts": ts,
+                    }
+
             # ── Requirement 2: skip if user already holds the base coin ──
             has_coin, _free_qty = self._has_base_coin()
             if has_coin:
@@ -355,6 +377,8 @@ class TradingEngine:
                 "note": f"{self.investment_mode} buy_signal | notional_target={amount_usdt:.4f} USDT",
             }
             self.logger.log_trade(trade)
+            # Clear the sell-price gate — a new buy cycle has started
+            self._last_sell_price = 0.0
             return {
                 "action": "buy",
                 "price": fill_price,
@@ -457,6 +481,8 @@ class TradingEngine:
                 ),
             }
             self.logger.log_trade(trade)
+            # Record the sell price for the buy-sell cycle gate
+            self._last_sell_price = float(fill_price)
             # on_sell_signal already called reset_position()
             return {
                 "action": "sell",
@@ -649,12 +675,15 @@ class TradingEngine:
 
     def _has_base_coin(self) -> tuple[bool, float]:
         """Check if the wallet already holds the base coin of self.pair.
-        Returns (has_coin, free_qty)."""
+        Returns (has_coin, free_qty).
+        Uses FLOAT_EPS threshold to ignore dust amounts after a full sell."""
         if not self.pair or not self.exch_mgr:
             return (False, 0.0)
         try:
             base = self.pair.split("/")[0]
             free_qty = float(self.exch_mgr.fetch_wallet_coin(base))
-            return (free_qty > 0, free_qty)
+            # Ignore dust — after a full sell the exchange may leave
+            # a tiny residual (e.g. 1e-8) which should NOT block a new buy.
+            return (free_qty > FLOAT_EPS, free_qty)
         except Exception:
             return (False, 0.0)

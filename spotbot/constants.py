@@ -104,19 +104,19 @@ ALLOW_MOCK_CANDLES = (
 API_KEY_PASSPHRASE = b"targov_dashboard_v3::api_keys::" + str(Path.home()).encode()
 
 
-# ── FLI / SAI indicator defaults (ported 1:1 from main.py — chart display only,
-#    NOT wired into TradingEngine.evaluate_signal, so Buy/Sell logic is untouched) ──
+# ── FLI / SAI indicator defaults ──
+# CCI/ADX/OBV removed from signal logic — kept for backward compat only.
 FLI_BB_PERIOD = 19
 FLI_BB_DEV = 0.6
 FLI_USE_ATR = True
 FLI_ATR_PERIOD = 9
-FLI_USE_CCI = True
+FLI_USE_CCI = False  # DEPRECATED: no longer used in signal logic
 FLI_CCI_LEN = 20
 FLI_CCI_LEVEL = 100.0
 FLI_CCI_BUFFER = 0.0
-FLI_USE_ADX = True
+FLI_USE_ADX = False  # DEPRECATED: no longer used in signal logic
 FLI_ADX_LEN = 14
 FLI_ADX_LEVEL = 20
-FLI_USE_OBV = True
+FLI_USE_OBV = False  # DEPRECATED: no longer used in signal logic
 FLI_OBV_SMA_LEN = 15
 FLI_MIN_SCORE = 1

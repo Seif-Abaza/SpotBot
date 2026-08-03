@@ -452,12 +452,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
         <div class="row"><span class="lbl">Total PnL:</span><span class="val pnlFlat" id="tTPnl">--</span></div>
       </div>
       <div id="infoPanel">
-        <div class="panelTitle">Indicators</div>
+        <div class="panelTitle">FLI Indicator</div>
         <div class="row"><span class="lbl">SAI Trend:</span><span class="val" id="iFLI">--</span></div>
-        <div class="row"><span class="lbl">CCI:</span><span class="val" id="iCCI">--</span></div>
-        <div class="row"><span class="lbl">ADX:</span><span class="val" id="iADX">--</span></div>
-        <div class="row"><span class="lbl">OBV:</span><span class="val" id="iOBV">--</span></div>
-        <div class="row"><span class="lbl">Score:</span><span class="val" id="iScore">--</span></div>
         <div class="row"><span class="lbl">BB Upper:</span><span class="val" id="iBBU">--</span></div>
         <div class="row"><span class="lbl">BB Lower:</span><span class="val" id="iBBL">--</span></div>
         <div class="signal none" id="iSignal">-- WAIT</div>
@@ -538,18 +534,15 @@ function _priceFmt(price){
   if(sig.length<2) sig=after.substring(i,i+2);
   return '0.'+sig;
 }
-var _priceFmtObj={type:'custom',minMove:0.00000001,formatter:_priceFmt};
 
 const fliCandles = fliChart.addCandlestickSeries({
   upColor:C.green, downColor:C.red,
   borderDownColor:C.red, borderUpColor:C.green,
   wickDownColor:C.red, wickUpColor:C.green,
-  priceFormat: _priceFmtObj,
 });
 
 const fliSignalLine = fliChart.addLineSeries({
   color:C.fliBuy, lineWidth:2, priceLineVisible:false, lastValueVisible:false,
-  priceFormat: _priceFmtObj,
 });
 
 // ── Alert price lines (horizontal dashed gray) ──
@@ -586,9 +579,7 @@ const fliBBLower = fliChart.addLineSeries({
 const $price=document.getElementById('lPrice');
 const $O=document.getElementById('lO'),$H=document.getElementById('lH');
 const $L=document.getElementById('lL'),$C_=document.getElementById('lC');
-const $FLI=document.getElementById('iFLI'),$CCI=document.getElementById('iCCI');
-const $ADX=document.getElementById('iADX'),$OBV=document.getElementById('iOBV');
-const $Score=document.getElementById('iScore');
+const $FLI=document.getElementById('iFLI');
 const $BBU=document.getElementById('iBBU'),$BBL=document.getElementById('iBBL');
 const $Signal=document.getElementById('iSignal');
 const $badge=document.getElementById('badge'),$badgeText=document.getElementById('badgeText');
@@ -684,25 +675,17 @@ document.getElementById('fliChart').addEventListener('contextmenu', function(e){
 
 document.getElementById('charts').addEventListener('contextmenu', function(e){ e.preventDefault(); return false; });
 
-function updateUIState(fliTrend,cciVal,adxVal,obvDir,score,bbUpper,bbLower,signal){
-  $FLI.textContent=fliTrend>0?'BULL':fliTrend<0?'BEAR':'FLAT';
+function updateUIState(fliTrend,bbUpper,bbLower,signal){
+  $FLI.textContent=fliTrend>0?'BULL (BUY)':fliTrend<0?'BEAR (SELL)':'FLAT (WAIT)';
   $FLI.style.color=fliTrend>0?C.green:fliTrend<0?C.red:'#848e9c';
-  $CCI.textContent=isNaN(cciVal)?'--':cciVal.toFixed(1);
-  $CCI.style.color=cciVal>110?C.green:cciVal<-110?C.red:'#eaecef';
-  $ADX.textContent=isNaN(adxVal)?'--':adxVal.toFixed(1);
-  $ADX.style.color=adxVal>24?C.green:'#f6465d';
-  $OBV.textContent=obvDir>0?'Above SMA':obvDir<0?'Below SMA':'--';
-  $OBV.style.color=obvDir>0?C.green:obvDir<0?C.red:'#848e9c';
-  $Score.textContent=score+'/3';
-  $Score.style.color=score>=2?C.green:score>=1?C.accent:'#848e9c';
   $BBU.textContent=bbUpper>0?bbUpper.toFixed(4):'--';
   $BBL.textContent=bbLower>0?bbLower.toFixed(4):'--';
   if(signal==='BUY'){
     $badge.className='badge bull';$badgeText.textContent='BUY SIGNAL';
-    $Signal.className='signal buy';$Signal.textContent='BUY SIGNAL (SAI Confirmed)';
+    $Signal.className='signal buy';$Signal.textContent='BUY SIGNAL (FLI Confirmed)';
   }else if(signal==='SELL'){
     $badge.className='badge bear';$badgeText.textContent='SELL SIGNAL';
-    $Signal.className='signal sell';$Signal.textContent='SELL SIGNAL (SAI Confirmed)';
+    $Signal.className='signal sell';$Signal.textContent='SELL SIGNAL (FLI Confirmed)';
   }else{
     $badge.className='badge wait';$badgeText.textContent='SCANNING...';
     $Signal.className='signal none';$Signal.textContent='-- WAIT';

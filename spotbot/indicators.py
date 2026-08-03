@@ -86,11 +86,12 @@ def fli_compute_obv(df: "pd.DataFrame") -> "pd.Series":
 
 def fli_compute_all_indicators(df: "pd.DataFrame", params: dict) -> "pd.DataFrame":
     """
-    Computes, in order (identical logic to main.py, minus SL/TP1/TP2):
-      1. Bollinger Bands            5. CCI confirmation
-      2. BB signal                  6. ADX confirmation
-      3. ATR                        7. OBV confirmation
-      4. TrendLine + iTrend (FLI)   8. Score system + confirmed buy/sell signals
+    Computes FLI/SAI indicator:
+      1. Bollinger Bands → BB signal
+      2. ATR
+      3. TrendLine + iTrend (FLI)
+      4. Buy/Sell = iTrend reversal only (1=buy, -1=sell, 0=wait)
+    CCI, ADX, OBV confirmations removed — pure FLI trend following.
     """
     df = df.copy()
     n = len(df)
@@ -138,52 +139,19 @@ def fli_compute_all_indicators(df: "pd.DataFrame", params: dict) -> "pd.DataFram
     df["itrend"] = it_arr.astype(int)
 
     prev_it = df["itrend"].shift(1).fillna(0).astype(int)
+    # Pure FLI: buy on trend reversal from -1→1, sell on 1→-1
     df["raw_buy"] = (prev_it == -1) & (df["itrend"] == 1)
     df["raw_sell"] = (prev_it == 1) & (df["itrend"] == -1)
+    df["buy_signal"] = df["raw_buy"]
+    df["sell_signal"] = df["raw_sell"]
 
-    use_cci = params.get("use_cci", FLI_USE_CCI)
-    cci_len = params.get("cci_len", FLI_CCI_LEN)
-    cci_level = params.get("cci_level", FLI_CCI_LEVEL)
-    cci_buffer = params.get("cci_buffer", FLI_CCI_BUFFER)
-    df["cci"] = (
-        fli_compute_cci(df, cci_len) if use_cci else pd.Series(0.0, index=df.index)
-    )
-
-    use_adx = params.get("use_adx", FLI_USE_ADX)
-    adx_len = params.get("adx_len", FLI_ADX_LEN)
-    adx_level = params.get("adx_level", FLI_ADX_LEVEL)
-    if use_adx:
-        df["plus_di"], df["minus_di"], df["adx"] = fli_compute_adx(df, adx_len)
-    else:
-        df["plus_di"] = 0.0
-        df["minus_di"] = 0.0
-        df["adx"] = 999.0
-
-    use_obv = params.get("use_obv", FLI_USE_OBV)
-    obv_sma_len = params.get("obv_sma_len", FLI_OBV_SMA_LEN)
-    df["obv"] = fli_compute_obv(df) if use_obv else pd.Series(0.0, index=df.index)
-    df["obv_sma"] = df["obv"].rolling(window=obv_sma_len, min_periods=1).mean()
-
-    cci_buy_ok = df["cci"] > (cci_level + cci_buffer)
-    cci_sell_ok = df["cci"] < -(cci_level + cci_buffer)
-    adx_ok = df["adx"] > adx_level
-    obv_buy_ok = df["obv"] > df["obv_sma"]
-    obv_sell_ok = df["obv"] < df["obv_sma"]
-
-    df["score_buy"] = (
-        (cci_buy_ok * int(use_cci)).astype(int)
-        + (adx_ok * int(use_adx)).astype(int)
-        + (obv_buy_ok * int(use_obv)).astype(int)
-    )
-    df["score_sell"] = (
-        (cci_sell_ok * int(use_cci)).astype(int)
-        + (adx_ok * int(use_adx)).astype(int)
-        + (obv_sell_ok * int(use_obv)).astype(int)
-    )
-
-    min_score = params.get("min_score", FLI_MIN_SCORE)
-    df["buy_signal"] = df["raw_buy"] & (df["score_buy"] >= min_score)
-    df["sell_signal"] = df["raw_sell"] & (df["score_sell"] >= min_score)
+    # Legacy columns kept for backward compat with chart display
+    df["cci"] = 0.0
+    df["adx"] = 0.0
+    df["obv"] = 0.0
+    df["obv_sma"] = 0.0
+    df["score_buy"] = df["raw_buy"].astype(int)
+    df["score_sell"] = df["raw_sell"].astype(int)
 
     return df
 

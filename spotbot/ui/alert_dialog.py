@@ -28,8 +28,6 @@ OPERATORS_MOVING = ["Moving Up", "Moving Down", "Moving Up %", "Moving Down %"]
 ALL_OPERATORS = OPERATORS_CROSSING + OPERATORS_COMPARE + OPERATORS_CHANNEL + OPERATORS_MOVING
 
 INDICATOR_LIST = [
-    "RSI (14)", "MACD Line", "MACD Signal",
-    "CCI", "ADX", "OBV",
     "BB Upper", "BB Lower", "Trendline",
 ]
 
