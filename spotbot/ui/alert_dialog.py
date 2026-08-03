@@ -583,17 +583,17 @@ class AlertDialog(QDialog):
         main_layout.addWidget(scroll, stretch=4)
 
         self._refresh_list()
-        if not self._conditions:
-            self._on_add_condition()
+        # Do NOT auto-add a condition; user clicks "+ Add Condition" explicitly
 
 
     # Condition management
 
     def _on_add_condition(self):
+        # First finalize any open editor (save to conditions list as a chip)
+        self._finalize_condition()
         if len(self._conditions) >= self.MAX_CONDITIONS:
             QMessageBox.information(self, "Limit Reached", f"Maximum {self.MAX_CONDITIONS} conditions per alert.")
             return
-        self._remove_condition_editor()
         data = {"value1": self.candle_price or 0.0}
         cw = ConditionWidget(data=data, chart_interval=self.chart_interval)
         cw.changed.connect(lambda: self._update_condition_from_editor())
