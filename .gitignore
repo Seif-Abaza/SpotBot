@@ -14,9 +14,6 @@ data/
 
 # Python cache
 __pycache__/
-spotbot/__pycache__/
-spotbot/ui/__pycache__/
-ui/__pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/

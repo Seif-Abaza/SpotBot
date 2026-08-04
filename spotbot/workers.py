@@ -1,7 +1,6 @@
 """Background QThread workers for streaming, pair loading, and data pipelines."""
 
 import asyncio
-import json
 import threading
 import time
 
@@ -10,23 +9,14 @@ from PySide6.QtCore import QThread, Signal
 from spotbot.constants import (
     ALLOW_MOCK_CANDLES,
     CANDLE_LIMIT,
-    CCXT_PRO_AVAILABLE,
-    CCXT_AVAILABLE,
-    FLOAT_EPS,
-    NUMPY_AVAILABLE,
-    PANDAS_AVAILABLE,
     TIMEFRAME_MAP,
-    TRADE_HISTORY_LIMIT,
 )
 from spotbot.indicators import (
     IndicatorEngine,
     _compute_fli_data,
-    fli_compute_all_indicators,
-    fli_ohlcv_to_df,
 )
 from spotbot.exchange import ExchangeManager
-from spotbot.trading import TradingEngine , _normalize_trade_marker
-from spotbot.transaction_logger import TransactionLogger
+from spotbot.trading import TradingEngine, _normalize_trade_marker
 from spotbot.chart_renderer import ChartRenderer
 
 

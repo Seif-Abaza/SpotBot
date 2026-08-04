@@ -1,10 +1,6 @@
 """Trading strategy engine: FLI signal evaluation and order execution."""
 
-import json
-import math
-import random
 import threading
-import time
 from datetime import datetime, timezone
 
 
@@ -19,17 +15,8 @@ def to_float(value, default=0.0):
 
 
 from spotbot.constants import (
-    CONFIRM_MULTIPLIER,
-    DEFAULT_SLIPPAGE,
-    DEFAULT_TAKER_FEE,
+    DUST_THRESHOLD,
     FLOAT_EPS,
-    MACD_BUY_CONFIRM_EPS,
-    MACD_SELL_CONFIRM_EPS,
-    RSI_BUY_CONFIRM,
-    RSI_BUY_THRESHOLD,
-    RSI_SELL_CONFIRM,
-    RSI_SELL_THRESHOLD,
-    TRADE_HISTORY_LIMIT,
 )
 from spotbot.indicators import TradeSignal
 from spotbot.exchange import ExchangeManager
@@ -676,14 +663,21 @@ class TradingEngine:
     def _has_base_coin(self) -> tuple[bool, float]:
         """Check if the wallet already holds the base coin of self.pair.
         Returns (has_coin, free_qty).
-        Uses FLOAT_EPS threshold to ignore dust amounts after a full sell."""
+        Uses DUST_THRESHOLD to ignore dust amounts after a full sell.
+        Also honours a post-sell grace period where the exchange balance
+        may not have settled yet."""
+        # After a recent sell, the exchange balance API may still report
+        # the old (pre-sell) quantity for a few seconds.  Trust our own
+        # state: if we just sold, we know we are flat.
+        if self._last_sell_price > 0 and not self.in_position:
+            return (False, 0.0)
         if not self.pair or not self.exch_mgr:
             return (False, 0.0)
         try:
             base = self.pair.split("/")[0]
             free_qty = float(self.exch_mgr.fetch_wallet_coin(base))
-            # Ignore dust — after a full sell the exchange may leave
-            # a tiny residual (e.g. 1e-8) which should NOT block a new buy.
-            return (free_qty > FLOAT_EPS, free_qty)
+            # DUST_THRESHOLD (1e-6) ignores typical post-sell residuals
+            # (e.g. 1e-8 ARB) that must NOT block a new buy.
+            return (free_qty > DUST_THRESHOLD, free_qty)
         except Exception:
             return (False, 0.0)

@@ -10,35 +10,21 @@ from datetime import datetime, timezone
 
 import ccxt
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
-from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QFont, QIcon
 from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QComboBox,
-    QCommandLinkButton,
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QLCDNumber,
     QLineEdit,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QRadioButton,
-    QSizePolicy,
     QSlider,
-    QSpacerItem,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -50,42 +36,17 @@ from spotbot.chart_renderer import (
     _to_chart_time,
 )
 from spotbot.constants import (
-    API_KEY_FILE,
-    CANDLE_LIMIT,
     CCXT_AVAILABLE,
     CHART_CDN_URL,
-    CONFIG_DIR,
-    FLI_ADX_LEN,
-    FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
     FLI_BB_DEV,
     FLI_BB_PERIOD,
-    FLI_CCI_BUFFER,
-    FLI_CCI_LEN,
-    FLI_CCI_LEVEL,
-    FLI_MIN_SCORE,
-    FLI_OBV_SMA_LEN,
-    FLI_USE_ADX,
     FLI_USE_ATR,
-    FLI_USE_CCI,
-    FLI_USE_OBV,
     FLOAT_EPS,
-    NUMPY_AVAILABLE,
-    PANDAS_AVAILABLE,
-    PNL_LOG_FILE,
-    QUOTE_ASSETS,
-    REFRESH_MS,
-    RSI_BUY_THRESHOLD,
-    RSI_SELL_THRESHOLD,
-    TIMEFRAME_MAP,
-    TIMEFRAMES,
-    TRADE_HISTORY_LIMIT,
     TRADE_NOTIFIER_AVAILABLE,
 )
 from spotbot.exchange import ExchangeManager
 from spotbot.indicators import IndicatorEngine, backtest_fli_signals
-from spotbot.styles import STYLE_QSS
-from spotbot.trading import TradingEngine
 from spotbot.transaction_logger import TransactionLogger
 from spotbot.ui.api_key_dialog import APIKeyDialog
 from spotbot.ui.coin_session import CoinSession
@@ -97,22 +58,17 @@ from spotbot.workers import (
     BacktestWorker,
     BestTimeframeWorker,
     DataFetchWorker,
-    IndicatorCalcWorker,
     PairLoaderWorker,
     ParallelPipeline,
-    ProcessWorker,
     SimCandleProcessWorker,
     SimulationWorker,
     WalletBuyWorker,
-    WebSocketWorker,
 )
 
 try:
     import numpy as np
-
-    NUMPY_AVAILABLE = True
 except ImportError:
-    NUMPY_AVAILABLE = False
+    np = None  # type: ignore[assignment]
 
 
 class MainWindow(QWidget):
@@ -224,16 +180,6 @@ class MainWindow(QWidget):
             "bb_dev": FLI_BB_DEV,
             "use_atr": FLI_USE_ATR,
             "atr_period": FLI_ATR_PERIOD,
-            "use_cci": FLI_USE_CCI,
-            "cci_len": FLI_CCI_LEN,
-            "cci_level": FLI_CCI_LEVEL,
-            "cci_buffer": FLI_CCI_BUFFER,
-            "use_adx": FLI_USE_ADX,
-            "adx_len": FLI_ADX_LEN,
-            "adx_level": FLI_ADX_LEVEL,
-            "use_obv": FLI_USE_OBV,
-            "obv_sma_len": FLI_OBV_SMA_LEN,
-            "min_score": FLI_MIN_SCORE,
         }
 
         self._load_exchanges()
@@ -921,8 +867,7 @@ class MainWindow(QWidget):
         self._set_status(
             f"⚙️ Params updated: Signal={new_params.get('signal_source', 'fli').upper()}, "
             f"BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
-            f"ATR:{new_params['atr_period']}"
-            f"MinScore:{new_params['min_score']}"
+            f"ATR:{new_params.get('atr_period', '-')}"
         )
 
         # Re-compute FLI for all open tabs (non-blocking via FLIChartWorker)
@@ -3366,7 +3311,6 @@ class MainWindow(QWidget):
         if play_sound:
             try:
                 import subprocess
-                import sys
 
                 if sys.platform == "win32":
                     import winsound

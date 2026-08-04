@@ -105,18 +105,19 @@ API_KEY_PASSPHRASE = b"targov_dashboard_v3::api_keys::" + str(Path.home()).encod
 
 
 # ── FLI / SAI indicator defaults ──
-# CCI/ADX/OBV removed from signal logic — kept for backward compat only.
 FLI_BB_PERIOD = 19
 FLI_BB_DEV = 0.6
 FLI_USE_ATR = True
 FLI_ATR_PERIOD = 9
-FLI_USE_CCI = False  # DEPRECATED: no longer used in signal logic
+
+# Kept for indicators_backup.py compatibility only — unused in live code.
+FLI_MIN_SCORE = 1
+FLI_USE_CCI = False
 FLI_CCI_LEN = 20
 FLI_CCI_LEVEL = 100.0
 FLI_CCI_BUFFER = 0.0
-FLI_USE_ADX = False  # DEPRECATED: no longer used in signal logic
+FLI_USE_ADX = False
 FLI_ADX_LEN = 14
 FLI_ADX_LEVEL = 20
-FLI_USE_OBV = False  # DEPRECATED: no longer used in signal logic
+FLI_USE_OBV = False
 FLI_OBV_SMA_LEN = 15
-FLI_MIN_SCORE = 1

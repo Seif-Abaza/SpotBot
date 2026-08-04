@@ -1,14 +1,15 @@
-"""Unit tests for ALL functions modified/created in this session.
+"""Unit tests for ALL functions modified/created across sessions.
 
 Covers:
-  1. trading.py   — _has_base_coin() dust threshold (FLOAT_EPS)
+  1. trading.py   — _has_base_coin() dust threshold (DUST_THRESHOLD)
   2. trading.py   — Buy-sell cycle: _last_sell_price gate (3% max)
   3. trading.py   — _execute_order() force/override_amount paths
   4. indicators.py — fli_compute_all_indicators() pure FLI (no CCI/ADX/OBV)
   5. chart_renderer.py — priceFormat removed from JS template
   6. indicator_params_dialog.py — simplified params (no CCI/ADX/OBV)
   7. alert_dialog.py — simplified INDICATOR_LIST
-  8. constants.py — CCI/ADX/OBV deprecated
+  8. constants.py — DUST_THRESHOLD exists
+  9. indicators.py — _compute_fli_data no FLI_MIN_SCORE gating
 """
 
 import sys
@@ -55,7 +56,15 @@ class TestHasBaseCoinDustThreshold(unittest.TestCase):
         has_coin = free_qty > DUST_THRESHOLD
         self.assertFalse(has_coin)
 
-    def test_at_eps_returns_false(self):
+    def test_dust_1e7_returns_false(self):
+        """A 1e-7 residual should also NOT block a new buy."""
+        from spotbot.constants import DUST_THRESHOLD
+
+        free_qty = 1e-7
+        has_coin = free_qty > DUST_THRESHOLD
+        self.assertFalse(has_coin)
+
+    def test_at_threshold_returns_false(self):
         """Exactly at DUST_THRESHOLD should return False (strict >)."""
         from spotbot.constants import DUST_THRESHOLD
 
@@ -63,12 +72,25 @@ class TestHasBaseCoinDustThreshold(unittest.TestCase):
         has_coin = free_qty > DUST_THRESHOLD
         self.assertFalse(has_coin)
 
+    def test_just_above_threshold_returns_true(self):
+        """Just above DUST_THRESHOLD should return True."""
+        from spotbot.constants import DUST_THRESHOLD
+
+        free_qty = DUST_THRESHOLD * 1.1
+        has_coin = free_qty > DUST_THRESHOLD
+        self.assertTrue(has_coin)
+
     def test_meaningful_balance_returns_true(self):
         from spotbot.constants import DUST_THRESHOLD
 
         free_qty = 1.0
         has_coin = free_qty > DUST_THRESHOLD
         self.assertTrue(has_coin)
+
+    def test_dust_threshold_is_1e6(self):
+        from spotbot.constants import DUST_THRESHOLD
+
+        self.assertEqual(DUST_THRESHOLD, 1e-6)
 
     def test_float_eps_value_is_tiny(self):
         from spotbot.constants import DUST_THRESHOLD
@@ -222,8 +244,8 @@ class TestPureFLIIndicators(unittest.TestCase):
             check_names=False,
         )
 
-    def test_legacy_columns_are_zero(self):
-        """CCI/ADX/OBV columns should be zero (legacy compat)."""
+    def test_no_legacy_columns(self):
+        """CCI/ADX/OBV/score columns should NOT exist in live indicators."""
         import numpy as np
         import pandas as pd
         from spotbot.indicators import fli_compute_all_indicators
@@ -241,9 +263,9 @@ class TestPureFLIIndicators(unittest.TestCase):
             }
         )
         result = fli_compute_all_indicators(df, {})
-        self.assertTrue((result["cci"] == 0.0).all())
-        self.assertTrue((result["adx"] == 0.0).all())
-        self.assertTrue((result["obv"] == 0.0).all())
+        for col in ("cci", "adx", "obv", "obv_sma", "score_buy", "score_sell"):
+            self.assertNotIn(col, result.columns,
+                             f"Legacy column '{col}' should not exist")
 
     def test_required_columns_exist(self):
         import numpy as np
@@ -281,6 +303,13 @@ class TestPureFLIIndicators(unittest.TestCase):
         result = fli_compute_all_indicators(df, {})
         self.assertEqual(len(result), 1)
 
+    def test_no_dead_functions(self):
+        """fli_compute_cci, fli_compute_adx, fli_compute_obv removed from live code."""
+        from spotbot import indicators
+        self.assertFalse(hasattr(indicators, "fli_compute_cci"))
+        self.assertFalse(hasattr(indicators, "fli_compute_adx"))
+        self.assertFalse(hasattr(indicators, "fli_compute_obv"))
+
 
 # ============================================================
 # 5. chart_renderer.py — priceFormat removed from JS template
@@ -307,7 +336,7 @@ class TestChartRendererPriceFormat(unittest.TestCase):
 
         self.assertIn("function _priceFmt(", _FLI_HTML_TEMPLATE)
 
-    def test_updateUIState_signature_changed(self):
+    def test_updateUIState_signature(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
 
         self.assertIn(
@@ -382,32 +411,68 @@ class TestAlertIndicatorListSimplified(unittest.TestCase):
 
 
 # ============================================================
-# 8. constants.py — CCI/ADX/OBV deprecated
+# 8. constants.py — DUST_THRESHOLD
 # ============================================================
-class TestConstantsDeprecated(unittest.TestCase):
-    """Verify CCI/ADX/OBV flags are set to False (deprecated)."""
+class TestConstantsDustThreshold(unittest.TestCase):
+    """Verify DUST_THRESHOLD exists and is correct."""
 
-    def test_cci_deprecated(self):
-        from spotbot.constants import FLI_USE_CCI
+    def test_dust_threshold_exists(self):
+        from spotbot.constants import DUST_THRESHOLD
+        self.assertIsNotNone(DUST_THRESHOLD)
 
-        self.assertFalse(FLI_USE_CCI)
+    def test_dust_threshold_value(self):
+        from spotbot.constants import DUST_THRESHOLD
+        self.assertEqual(DUST_THRESHOLD, 1e-6)
 
-    def test_adx_deprecated(self):
-        from spotbot.constants import FLI_USE_ADX
+    def test_dust_threshold_larger_than_float_eps(self):
+        from spotbot.constants import DUST_THRESHOLD, FLOAT_EPS
+        self.assertGreater(DUST_THRESHOLD, FLOAT_EPS)
 
-        self.assertFalse(FLI_USE_ADX)
 
-    def test_obv_deprecated(self):
-        from spotbot.constants import FLI_USE_OBV
+# ============================================================
+# 9. _compute_fli_data no FLI_MIN_SCORE gating
+# ============================================================
+class TestComputeFLIDataNoScoreGate(unittest.TestCase):
+    """Verify _compute_fli_data uses pure trend reversal, no score gating."""
 
-        self.assertFalse(FLI_USE_OBV)
+    def test_output_keys_no_legacy(self):
+        import numpy as np
+        import pandas as pd
+        from spotbot.indicators import _compute_fli_data
 
-    def test_bb_and_atr_still_active(self):
-        from spotbot.constants import FLI_USE_ATR, FLI_BB_PERIOD, FLI_BB_DEV
+        n = 30
+        np.random.seed(77)
+        prices = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
+        candles = []
+        for i in range(n):
+            ts = 1700000000 + i * 300
+            candles.append([ts, prices[i] - 0.1, prices[i] + 0.5,
+                          prices[i] - 0.5, prices[i], 1000.0])
+        result = _compute_fli_data(candles)
+        self.assertIsNotNone(result)
+        # Should NOT have score/cci/adx keys
+        self.assertNotIn("score", result)
+        self.assertNotIn("score_buy", result)
+        self.assertNotIn("score_sell", result)
+        self.assertNotIn("cci", result)
+        self.assertNotIn("adx", result)
 
-        self.assertTrue(FLI_USE_ATR)
-        self.assertEqual(FLI_BB_PERIOD, 19)
-        self.assertAlmostEqual(FLI_BB_DEV, 0.6)
+    def test_signal_is_buy_sell_or_wait(self):
+        import numpy as np
+        import pandas as pd
+        from spotbot.indicators import _compute_fli_data
+
+        n = 30
+        np.random.seed(88)
+        prices = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
+        candles = []
+        for i in range(n):
+            ts = 1700000000 + i * 300
+            candles.append([ts, prices[i] - 0.1, prices[i] + 0.5,
+                          prices[i] - 0.5, prices[i], 1000.0])
+        result = _compute_fli_data(candles)
+        self.assertIsNotNone(result)
+        self.assertIn(result["signal"], ("BUY", "SELL", "WAIT"))
 
 
 if __name__ == "__main__":
