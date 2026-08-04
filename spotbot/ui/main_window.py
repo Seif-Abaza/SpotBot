@@ -71,6 +71,30 @@ except ImportError:
     np = None  # type: ignore[assignment]
 
 
+def _safe_json(obj, **kwargs):
+    """json.dumps wrapper that never produces NaN / Infinity tokens.
+
+    Python's json.dumps emits bare ``NaN`` and ``Infinity`` for non-finite
+    floats.  Those are *not* valid JSON and cause JavaScript
+    ``SyntaxError: Invalid or unexpected token`` when injected into
+    QWebEngineView via runJavaScript.  This helper replaces them with
+    ``null`` so the resulting string is always safe to eval.
+    """
+    import math
+
+    def _sanitize(value):
+        if isinstance(value, float):
+            if math.isnan(value) or math.isinf(value):
+                return None
+        elif isinstance(value, dict):
+            return {k: _sanitize(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [_sanitize(v) for v in value]
+        return value
+
+    return json.dumps(_sanitize(obj), **kwargs)
+
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -515,7 +539,7 @@ class MainWindow(QWidget):
                     )
             self._chart_js(
                 pair,
-                f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
+                f"try {{ setBacktestMarkers({_safe_json(chart_markers)}); }}"
                 f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
             )
             # Update backtest stats panel
@@ -606,7 +630,7 @@ class MainWindow(QWidget):
                 )
         self._chart_js(
             pair,
-            f"try {{ setBacktestMarkers({json.dumps(chart_markers)}); }}"
+            f"try {{ setBacktestMarkers({_safe_json(chart_markers)}); }}"
             f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
         )
 
@@ -678,7 +702,7 @@ class MainWindow(QWidget):
 
         self._pair_wallet_buy_markers[pair] = buy_trades_data
 
-        self._chart_js(pair, f"setWalletBuyMarkers({json.dumps(chart_markers)});")
+        self._chart_js(pair, f"setWalletBuyMarkers({_safe_json(chart_markers)});")
 
         # Build panel buys data from the chart markers
         panel_buys = []
@@ -691,7 +715,7 @@ class MainWindow(QWidget):
 
         self._chart_js(
             pair,
-            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});",
+            f"updateWalletBuyPanel({_safe_json(panel_buys)},{total_qty},{avg_price});",
         )
         self._set_status(
             f"{pair}: found {len(chart_markers)} buy trades, avg entry {avg_price:.6f}"
@@ -1005,6 +1029,10 @@ class MainWindow(QWidget):
             # Start simulation for all existing tabs
             for pair in list(self._sessions.keys()):
                 self._start_simulation_for_pair(pair)
+            # Enable simulate flag on all engines
+            for session in self._sessions.values():
+                session.engine.simulate = True
+                session.engine.set_trading_enabled(self._global_trading_enabled)
         else:
             self.btnSimulation.setText("🎮 Simulate")
             self._set_status("🎮 Simulation mode OFF — back to live data")
@@ -1027,6 +1055,9 @@ class MainWindow(QWidget):
                     worker.stop()
             self._sim_process_workers.clear()
             self._sim_processing.clear()
+            # ── Disable simulate flag on all engines ──
+            for session in self._sessions.values():
+                session.engine.simulate = False
             # ── Reset wallet to real exchange balance after simulation ──
             if self._is_connected:
                 try:
@@ -1291,10 +1322,10 @@ class MainWindow(QWidget):
                     "close": c,
                 }
             )
-        self._chart_js(pair, f"setFliCandles({json.dumps(candles)});")
+        self._chart_js(pair, f"setFliCandles({_safe_json(candles)});")
         if candles:  # noqa: C901
             self._pair_last_chart_ts[pair] = candles[-1]["time"]
-        self._chart_js(pair, f"setSymbol({json.dumps(f'{pair} ({self._tf()})')});")
+        self._chart_js(pair, f"setSymbol({_safe_json(f'{pair} ({self._tf()}')});")
 
     def _set_fli_lines(self, pair: str, df):
         """Push the FLI trendline (green=buy/red=sell), Bollinger bands, and signal state."""
@@ -1329,9 +1360,9 @@ class MainWindow(QWidget):
                 v = float(bl)
                 if not (_math.isnan(v) or _math.isinf(v)):
                     bbl.append({"time": t, "value": v})
-        self._chart_js(pair, f"setFliSignalLine({json.dumps(signal_pts)});")
-        self._chart_js(pair, f"setFliBBUpper({json.dumps(bbu)});")
-        self._chart_js(pair, f"setFliBBLower({json.dumps(bbl)});")
+        self._chart_js(pair, f"setFliSignalLine({_safe_json(signal_pts)});")
+        self._chart_js(pair, f"setFliBBUpper({_safe_json(bbu)});")
+        self._chart_js(pair, f"setFliBBLower({_safe_json(bbl)});")
 
     def _set_markers(self, pair: str, df, trade_markers=None, backtest_markers=None):
         """Push PENDING/BUY/SELL markers + backtest markers to the chart.
@@ -1392,7 +1423,7 @@ class MainWindow(QWidget):
                     }
                 )
         markers.sort(key=lambda x: float(x["time"]))
-        self._chart_js(pair, f"setMarkers({json.dumps(markers)});")
+        self._chart_js(pair, f"setMarkers({_safe_json(markers)});")
         # ── Re-push backtest markers so they merge with trade markers ──
         if backtest_markers:
             bt_chart = []
@@ -1432,7 +1463,7 @@ class MainWindow(QWidget):
                     )
             self._chart_js(
                 pair,
-                f"try {{ setBacktestMarkers({json.dumps(bt_chart)}); }}"
+                f"try {{ setBacktestMarkers({_safe_json(bt_chart)}); }}"
                 f"catch(e) {{ console.warn('bt markers error:', e.message, e.stack); }}",
             )
 
@@ -1741,7 +1772,7 @@ class MainWindow(QWidget):
             )
 
         # Push markers to chart
-        self._chart_js(pair, f"setWalletBuyMarkers({json.dumps(chart_markers)});")
+        self._chart_js(pair, f"setWalletBuyMarkers({_safe_json(chart_markers)});")
 
         # Update wallet buy info panel
         total_qty = sum(bt["qty"] for bt in buy_trades)
@@ -1754,7 +1785,7 @@ class MainWindow(QWidget):
         ]
         self._chart_js(
             pair,
-            f"updateWalletBuyPanel({json.dumps(panel_buys)},{total_qty},{avg_price});",
+            f"updateWalletBuyPanel({_safe_json(panel_buys)},{total_qty},{avg_price});",
         )
 
         self._set_status(
@@ -2095,8 +2126,6 @@ class MainWindow(QWidget):
         and a source of subtle drift bugs.  Extracted here as a single helper
         so both call-sites stay in sync.
         """
-        import json as _json
-
         if not fli_data:
             return []
         parts: list[str] = []
@@ -2114,7 +2143,7 @@ class MainWindow(QWidget):
                 if t is None:
                     continue
                 entries.append({"time": t, "value": float(v)})
-            return _json.dumps(entries)
+            return _safe_json(entries)
 
         if bb_upper:
             parts.append("setFliBBUpper(" + _to_series(bb_upper) + ")")
@@ -2131,7 +2160,7 @@ class MainWindow(QWidget):
                 color = "#0ecb81" if t == 1 else ("#f6465d" if t == -1 else "#848e9c")
                 signal_pts.append({"time": t2, "value": float(v), "color": color})
             if signal_pts:
-                parts.append("setFliSignalLine(" + _json.dumps(signal_pts) + ")")
+                parts.append("setFliSignalLine(" + _safe_json(signal_pts) + ")")
         # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
         fli_trend_val = fli_data.get("fli_trend", 0) or 0
         bbu_val = fli_data.get("bb_upper_val", 0) or 0
@@ -2143,14 +2172,13 @@ class MainWindow(QWidget):
         return parts
 
     def _build_initial_chart_js(self, pair: str, data: dict) -> str:
-        import json as _json
         import math as _math
 
         candles = data.get("candles", [])
         fli_data = data.get("fli_data")
         markers = data.get("markers", [])
         parts = []
-        parts.append("setSymbol(" + _json.dumps(f"{pair} ({self._tf()})") + ")")
+        parts.append("setSymbol(" + _safe_json(f"{pair} ({self._tf()})") + ")")
         if candles:
             candle_entries = []
             for c in candles:
@@ -2169,7 +2197,7 @@ class MainWindow(QWidget):
                         "close": cl,
                     }
                 )
-            parts.append("setFliCandles(" + _json.dumps(candle_entries) + ")")
+            parts.append("setFliCandles(" + _safe_json(candle_entries) + ")")
             # lightweight-charts update() throws "Cannot update oldest data"
             # if the new candle ts is not strictly newer than the last bar.
             if candle_entries:
@@ -2185,7 +2213,6 @@ class MainWindow(QWidget):
         return f"try {{ {body} }} catch(e) {{ console.warn('chart init skipped:', e.message, e.stack); }}"
 
     def _build_incremental_js(self, pair: str, data: dict) -> str:
-        import json as _json
         import math as _math
 
         candles = data.get("candles", [])
@@ -2207,7 +2234,7 @@ class MainWindow(QWidget):
             else:
                 parts.append(
                     "updateFliCandle("
-                    + _json.dumps(
+                    + _safe_json(
                         {
                             "time": ts,
                             "open": o,
@@ -3035,7 +3062,7 @@ class MainWindow(QWidget):
                 if v2 and v2 > 0:
                     prices.append(float(v2))
         prices = sorted(set(prices))
-        self._chart_js(pair, f"setAlertPriceLines({json.dumps(prices)});")
+        self._chart_js(pair, f"setAlertPriceLines({_safe_json(prices)});")
         session = self._sessions.get(pair)
         if session and session.candles:
             indicators = getattr(session, "indicators", None) or {}

@@ -87,6 +87,10 @@ class TradingEngine:
         self.REBUY_MAX_PCT_ABOVE = 0.03  # 3%
         self.pair = ""
         self.ccxt = None
+        # ── Simulation mode flag ──
+        # When True, _execute_order skips real exchange calls and
+        # simulates fills locally (no ccxt order placement).
+        self.simulate = False
         # ── Trading gates (user must explicitly arm trading) ──
         self.trading_enabled = False  # global user toggle (Start Trading button)
         self._halted = False  # pause flag (halt/resume)
@@ -274,6 +278,11 @@ class TradingEngine:
 
         amount_usdt = override_amount if override_amount is not None else self._get_investment_amount()
         order_id = f"sim-{int(ts)}"
+
+        # ── Simulation mode: skip exchange checks and simulate fills ──
+        if self.simulate:
+            return self._simulate_order(side, price, ts, amount_usdt, order_id, force)
+
         if self._resolve_ccxt() is None:
             return None
 
@@ -486,6 +495,146 @@ class TradingEngine:
             return self.investment_amount
         else:  # CUMULATIVE
             return self.investment_amount + self.accumulated_profit
+
+    def _simulate_order(self, side: str, price: float, ts, amount_usdt: float, order_id: str, force: bool) -> dict | None:
+        """Simulate a buy or sell without touching the real exchange.
+
+        Updates in_position, entry_price/qty, wallet_balance and returns
+        the same dict shape as _execute_order so callers (main_window)
+        can handle it identically — chart markers, sounds, PnL logging.
+        """
+        if side == "buy_signal" and not self.in_position:
+            # Buy-sell cycle gate
+            if not force and self._last_sell_price > 0:
+                max_rebuy = self._last_sell_price * (1.0 + self.REBUY_MAX_PCT_ABOVE)
+                if price > max_rebuy:
+                    return {
+                        "action": "skipped",
+                        "signal": "buy_signal",
+                        "note": (
+                            f"[Sim] Price {price:.6f} > max rebuy {max_rebuy:.6f}"
+                        ),
+                        "ts": ts,
+                    }
+
+            # Check simulated wallet
+            if self.wallet_balance < amount_usdt:
+                return {
+                    "action": "rejected",
+                    "signal": "buy_signal",
+                    "note": (
+                        f"[Sim] Insufficient USDT: have {self.wallet_balance:.4f}, "
+                        f"need {amount_usdt:.4f}"
+                    ),
+                    "ts": ts,
+                }
+
+            qty = amount_usdt / price if price > 0 else 0
+            fill_price = price
+            fill_qty = qty
+
+            with self._eval_lock:
+                self.in_position = True
+                self._entry_price = fill_price
+                self._position_qty = fill_qty
+                self._last_fill_price = fill_price
+                self._last_fill_qty = fill_qty
+
+            spent = fill_price * fill_qty
+            self.wallet_balance -= spent
+            self._last_sell_price = 0.0
+
+            trade = {
+                "timestamp": datetime.fromtimestamp(
+                    ts / 1000 if ts > 1e10 else ts, tz=timezone.utc
+                ).isoformat(),
+                "side": "buy",
+                "symbol": self.pair,
+                "price": fill_price,
+                "quantity": fill_qty,
+                "value_usdt": spent,
+                "order_id": order_id,
+                "pnl_usdt": None,
+                "pnl_pct": None,
+                "note": f"{self.investment_mode} SIM buy | notional={amount_usdt:.4f} USDT",
+            }
+            self.logger.log_trade(trade)
+            return {
+                "action": "buy",
+                "price": fill_price,
+                "qty": fill_qty,
+                "ts": ts,
+                "trade": trade,
+            }
+
+        elif side == "sell_signal" and self.in_position:
+            entry_qty = self.entry_qty
+            entry_price = self.entry_price
+
+            if not force and price <= entry_price:
+                return {
+                    "action": "hold",
+                    "signal": "sell_signal",
+                    "note": (
+                        f"[Sim] HOLD: price {price:.4f} <= entry {entry_price:.4f}"
+                    ),
+                    "ts": ts,
+                    "price": price,
+                    "entry_price": entry_price,
+                }
+
+            fill_price = price
+            fill_qty = entry_qty
+            actual_sell_qty = fill_qty
+
+            realized_exit = actual_sell_qty * fill_price
+            realized_pnl = realized_exit - (actual_sell_qty * entry_price)
+            realized_pnl_pct = (
+                (realized_pnl / (actual_sell_qty * entry_price)) * 100
+                if entry_price
+                else 0
+            )
+            self.wallet_balance += realized_exit
+            if self.investment_mode == "CUMULATIVE":
+                self.accumulated_profit += realized_pnl
+
+            with self._eval_lock:
+                self._last_fill_price = fill_price
+                self._last_fill_qty = fill_qty
+                self.accumulated_pnl += realized_pnl
+                self.reset_position()
+                self._last_price = fill_price
+
+            trade = {
+                "timestamp": datetime.fromtimestamp(
+                    ts / 1000 if ts > 1e10 else ts, tz=timezone.utc
+                ).isoformat(),
+                "side": "sell",
+                "symbol": self.pair,
+                "price": fill_price,
+                "quantity": actual_sell_qty,
+                "value_usdt": realized_exit,
+                "order_id": order_id,
+                "pnl_usdt": realized_pnl,
+                "pnl_pct": realized_pnl_pct,
+                "total_pnl": self.accumulated_pnl,
+                "note": (
+                    f"{self.investment_mode} SIM sell | "
+                    f"entry={entry_price:.4f} exit={fill_price:.4f} "
+                    f"qty={actual_sell_qty:.8f}"
+                ),
+            }
+            self.logger.log_trade(trade)
+            self._last_sell_price = fill_price
+            return {
+                "action": "sell",
+                "price": fill_price,
+                "qty": actual_sell_qty,
+                "ts": ts,
+                "trade": trade,
+            }
+
+        return None
 
     # ─────────────────────────────────────────────────────────────
     # Order placement
