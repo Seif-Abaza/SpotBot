@@ -24,20 +24,10 @@ except ImportError:
     PANDAS_AVAILABLE = False
 
 from spotbot.constants import (
-    FLI_ADX_LEN,
-    FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
     FLI_BB_DEV,
     FLI_BB_PERIOD,
-    FLI_CCI_BUFFER,
-    FLI_CCI_LEN,
-    FLI_CCI_LEVEL,
-    FLI_MIN_SCORE,
-    FLI_OBV_SMA_LEN,
-    FLI_USE_ADX,
     FLI_USE_ATR,
-    FLI_USE_CCI,
-    FLI_USE_OBV,
     FLOAT_EPS,
 )
 
