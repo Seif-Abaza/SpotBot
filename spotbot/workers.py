@@ -736,6 +736,11 @@ class SimCandleProcessWorker(QThread):
     This worker runs all heavy computation in the background and emits a
     ready-to-use ``enriched`` dict that the main thread can push to the
     chart with minimal work (a single JS call).
+
+    When signal_source == "fli", FLI indicators are computed and signals
+    evaluated **inside this worker** (background thread) so that buy/sell
+    execution happens immediately on every simulated candle — matching the
+    user's requirement that FLI signals must buy/sell without delay.
     """
     process_done = Signal(str, dict)   # pair, enriched_data
     process_error = Signal(str, str)   # pair, error_message
@@ -749,6 +754,7 @@ class SimCandleProcessWorker(QThread):
         markers: list | None = None,
         timeframe: str = "5m",
         signal_source: str = "fli",
+        fli_params: dict | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -759,22 +765,62 @@ class SimCandleProcessWorker(QThread):
         self.markers = markers or []
         self.timeframe = timeframe
         self.signal_source = signal_source
+        self.fli_params = fli_params or {}
         self._running = True
 
     def run(self):
         if not self._running:
             return
         try:
-            # 1. Compute indicators (the heaviest part — TA-Lib calls)
+            # 1. Compute RSI/MACD indicators (the heaviest part)
             indicators = IndicatorEngine.compute_all_indicators(self.candles)
             if not self._running:
                 return
 
-            # 2. Evaluate trading signal — only if using RSI/MACD source.
-            # FLI signals are evaluated in _on_fli_ready (main thread) after
-            # the FLI worker finishes.
+            # 2. Evaluate trading signal
             signal_result = None
-            if self.signal_source != "fli" and len(self.candles) >= 2:
+
+            if self.signal_source == "fli" and len(self.candles) >= 2:
+                # ── FLI signal evaluation (immediate buy/sell) ──
+                # Compute FLI indicators in this worker thread so the
+                # main thread never blocks, and evaluate the signal
+                # directly — no confirmation delay.
+                try:
+                    from spotbot.indicators import (
+                        fli_ohlcv_to_df,
+                        fli_compute_all_indicators,
+                    )
+
+                    df = fli_ohlcv_to_df(self.candles)
+                    if df is not None and not df.empty:
+                        df = fli_compute_all_indicators(df, self.fli_params)
+                        last = df.iloc[-1]
+                        fli_buy = bool(last.get("buy_signal", False))
+                        fli_sell = bool(last.get("sell_signal", False))
+                        price = float(last["close"])
+                        row_time = last.get("time") or last.get("timestamp")
+                        ts = None
+                        if row_time is not None:
+                            try:
+                                if hasattr(row_time, "timestamp"):
+                                    ts = int(row_time.timestamp())
+                                else:
+                                    ts = int(row_time)
+                                if abs(ts) > 1e10:
+                                    ts = int(ts / 1000)
+                            except (TypeError, ValueError):
+                                ts = None
+                        if ts is not None:
+                            signal_result = (
+                                self.trading_engine.evaluate_fli_signal(
+                                    fli_buy, fli_sell, price, ts
+                                )
+                            )
+                except Exception:
+                    pass  # Non-fatal: chart still updates
+
+            elif self.signal_source != "fli" and len(self.candles) >= 2:
+                # RSI/MACD signal evaluation
                 try:
                     signal_result = self.trading_engine.evaluate_signal(
                         indicators, self.candles[-1], self.candles

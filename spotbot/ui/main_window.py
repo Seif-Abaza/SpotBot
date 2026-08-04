@@ -958,11 +958,39 @@ class MainWindow(QWidget):
 
     @Slot(bool)
     def _on_simulation_toggled(self, checked: bool):
-        """Toggle simulation mode on/off."""
+        """Toggle simulation mode on/off.
+
+        When simulation turns ON, the portfolio balance is preserved (uses the
+        current _portfolio_balance or fetches from exchange if not set).
+        When simulation turns OFF, the wallet is reset to the real exchange
+        balance so live trading uses accurate numbers.
+        """
         self._simulation_active = checked
         if checked:
             self.btnSimulation.setText("🎮 Simulating…")
-            self._set_status("🎮 Simulation mode ON — generating realistic candles")
+            # Snapshot the real wallet balance before simulation starts
+            if self._portfolio_balance <= 0 and self._is_connected:
+                try:
+                    real_balance = float(
+                        self.exch_mgr.fetch_wallet_coin("USDT")
+                    )
+                    self._portfolio_balance = real_balance
+                    self.ui.lnWalletBalance.setProperty(
+                        "value", self._portfolio_balance
+                    )
+                    self.ui.lnWalletBalance.display(self._portfolio_balance)
+                except Exception:
+                    pass
+            if self._portfolio_balance <= 0:
+                self._portfolio_balance = 10_000.0
+                self.ui.lnWalletBalance.setProperty(
+                    "value", self._portfolio_balance
+                )
+                self.ui.lnWalletBalance.display(self._portfolio_balance)
+            self._set_status(
+                f"🎮 Simulation mode ON — balance: "
+                f"{self._portfolio_balance:.2f} USDT"
+            )
             # Show speed/price controls
             for w in (
                 self.lblSimSpeed,
@@ -999,6 +1027,25 @@ class MainWindow(QWidget):
                     worker.stop()
             self._sim_process_workers.clear()
             self._sim_processing.clear()
+            # ── Reset wallet to real exchange balance after simulation ──
+            if self._is_connected:
+                try:
+                    real_balance = float(
+                        self.exch_mgr.fetch_wallet_coin("USDT")
+                    )
+                    self._portfolio_balance = real_balance
+                    self.ui.lnWalletBalance.setProperty(
+                        "value", self._portfolio_balance
+                    )
+                    self.ui.lnWalletBalance.display(self._portfolio_balance)
+                    for pair, session in self._sessions.items():
+                        session.update_balance(real_balance)
+                    self._set_status(
+                        f"🎮 Wallet reset to real balance: "
+                        f"{real_balance:.2f} USDT"
+                    )
+                except Exception as e:
+                    print(f"[sim off] wallet reset error: {e}")
             # Resume normal refresh if connected
             if self._is_connected and self._sessions:
                 self._refresh_timer.start()
@@ -1092,7 +1139,10 @@ class MainWindow(QWidget):
             candles = candles[-1000:]
         session.candles = candles
         self._pair_candles[pair] = candles
-        session.update_balance(10_000.0)
+        # Use the actual portfolio balance (or user-set investment) for
+        # simulation, not a hardcoded 10,000.
+        sim_balance = self._portfolio_balance if self._portfolio_balance > 0 else 10_000.0
+        session.update_balance(sim_balance)
 
         # ── Guard: skip if previous processing still in flight ──
         if self._sim_processing.get(pair, False):
@@ -1109,10 +1159,11 @@ class MainWindow(QWidget):
             pair=pair,
             candles=list(candles),
             trading_engine=session.engine,
-            balance=10_000.0,
+            balance=sim_balance,
             markers=self._pair_markers.get(pair, []),
             timeframe=session.timeframe,
             signal_source=self._fli_params.get("signal_source", "fli"),
+            fli_params=self._fli_params,
             parent=self,
         )
         worker.process_done.connect(self._on_sim_process_done)
@@ -1137,12 +1188,11 @@ class MainWindow(QWidget):
         session.indicators = indicators
 
         # ── Handle trading signal result (came from the worker thread) ──
-        # When signal_source == "fli", signals are evaluated in _on_fli_ready;
-        # skip the RSI/MACD result from the sim worker.
+        # Both FLI and RSI/MACD signals are now evaluated inside the
+        # SimCandleProcessWorker, so we handle all signal sources here.
         signal_result = enriched.get("signal_result")
         if (
             signal_result
-            and self._fli_params.get("signal_source") != "fli"
             and signal_result.get("action")
             in (
                 "buy",

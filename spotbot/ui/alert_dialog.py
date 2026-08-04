@@ -887,7 +887,6 @@ class AlertDialog(QDialog):
                 text = f"(OFF) {text}"
             item = QListWidgetItem(text)
             if not enabled:
-                item.setForeground(QColor(100, 100, 100)) if hasattr(QColor, '__call__') else None
                 try:
                     from PySide6.QtGui import QColor as QC
                     item.setForeground(QC("#646464"))

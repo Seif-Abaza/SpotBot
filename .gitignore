@@ -7,9 +7,12 @@ config.json
 .idea/
 *.swp
 *.swo
+
+# Audio assets
 *.mp3
 *.wav
 SFX/
+
 data/
 
 # Python cache
@@ -21,7 +24,6 @@ __pycache__/
 .opencode/
 .omo/
 
-SFX/
 transactions/
 AGENTS.md
 
