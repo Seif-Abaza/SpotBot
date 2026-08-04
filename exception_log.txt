@@ -14,3 +14,7 @@
 2026-08-03T01:19:49.302137 [spotbot/ui/main_window.py:3200] UNHANDLED AttributeError: 'MainWindow' object has no attribute '_log'
 2026-08-03T01:19:49.912130 [spotbot/ui/main_window.py:3200] UNHANDLED AttributeError: 'MainWindow' object has no attribute '_log'
 2026-08-03T01:19:50.936268 [spotbot/ui/main_window.py:3200] UNHANDLED AttributeError: 'MainWindow' object has no attribute '_log'
+2026-08-04T00:58:36.596381 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
+2026-08-04T00:59:12.506197 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
+2026-08-04T00:59:32.614355 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
+2026-08-04T01:13:40.183595 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'min_score'

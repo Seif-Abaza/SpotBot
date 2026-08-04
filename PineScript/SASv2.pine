@@ -1,0 +1,227 @@
+//@version=6
+indicator("Seif Abaza Sniper PROv2", shorttitle="SASv2", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
+
+// ══════════════════════════════════════════════════════════
+// 1️⃣ إعدادات FLI الأساسية
+// ══════════════════════════════════════════════════════════
+grp_fli = "1️⃣ FLI Core Settings"
+bb_period    = input.int(21, "FLI Bollinger Period", group=grp_fli)
+bb_mult      = input.float(1.0, "FLI Bollinger Multiplier", step=0.1, group=grp_fli)
+atr_period   = input.int(14, "ATR Period", group=grp_fli)
+use_atr      = input.bool(true, "Use ATR in FLI Trendline", group=grp_fli)
+sl_atr_mult  = input.float(1.5, "Stop Loss (x ATR)", step=0.1, group=grp_fli)
+tp1_atr_mult = input.float(1.5, "Take Profit 1 (x ATR)", step=0.1, group=grp_fli)
+tp2_atr_mult = input.float(3.0, "Take Profit 2 (x ATR)", step=0.1, group=grp_fli)
+
+// ══════════════════════════════════════════════════════════
+// 2️⃣ فلتر الاتجاه العام (Higher Timeframe)
+// ══════════════════════════════════════════════════════════
+grp_htf = "2️⃣ Higher Timeframe Trend Filter"
+use_htf_filter = input.bool(true, "Enable HTF Trend Filter", group=grp_htf)
+htf_timeframe  = input.timeframe("60", "Higher Timeframe", group=grp_htf)
+htf_ema_len    = input.int(50, "HTF EMA Length", group=grp_htf)
+
+// ══════════════════════════════════════════════════════════
+// 3️⃣ كاشف التصفيات بالإنترست المفتوح (OI Liquidation Guard)
+// ══════════════════════════════════════════════════════════
+grp_liq_guard = "3️⃣ OI Liquidation Guard (من المؤشر الأول)"
+use_oi_filter = input.bool(true, "تفعيل شرط التصفيات للدخول", group=grp_liq_guard)
+liqLookback   = input.int(3, "عدد الشموع لقياس هبوط OI", minval=1, group=grp_liq_guard)
+liqDropPct    = input.float(3.0, "نسبة هبوط OI % لاعتبارها تصفية", minval=0.1, group=grp_liq_guard)
+
+liveOI_ticker = syminfo.tickerid + "_OI"
+rawOI         = request.security(liveOI_ticker, timeframe.period, close, ignore_invalid_symbol=true)
+
+var float lastValidOI = na
+if not na(rawOI)
+    lastValidOI := rawOI
+oiGuarded = na(rawOI) ? lastValidOI : rawOI
+oiUsable  = not na(oiGuarded)
+
+oiPrev       = oiGuarded[liqLookback]
+oiChangePct  = (not oiUsable) or na(oiPrev) or oiPrev == 0 ? na : (oiGuarded - oiPrev) / oiPrev * 100.0
+violentDrop  = not na(oiChangePct) and oiChangePct <= -liqDropPct
+
+longLiquidation  = violentDrop and close < close[liqLookback]
+shortLiquidation = violentDrop and close > close[liqLookback]
+
+// ══════════════════════════════════════════════════════════
+// 4️⃣ فلتر هيكل السوق (Smart Money / Premium & Discount Zones)
+// ══════════════════════════════════════════════════════════
+grp_smc = "4️⃣ SMC Market Structure Filter"
+use_smc_filter = input.bool(true, "تفعيل فلتر المناطق الهيكلية (Premium/Discount)", group=grp_smc)
+smc_lookback   = input.int(50, "نطاق قياس القمة والقاع الهيكلي (Bars)", minval=10, group=grp_smc)
+
+highest_high = ta.highest(high, smc_lookback)
+lowest_low   = ta.lowest(low, smc_lookback)
+eq_level     = (highest_high + lowest_low) / 2.0  // مستوى التعادل 50%
+
+in_discount_zone = close < eq_level // منطقة خصم (مناسبة للشراء)
+in_premium_zone  = close > eq_level // منطقة علاجية (مناسبة للبيع)
+
+// ══════════════════════════════════════════════════════════
+// 5️⃣ فلاتر الزخم والسيولة والضوضاء
+// ══════════════════════════════════════════════════════════
+grp_mom = "5️⃣ Momentum & Volume Filters"
+obv_ema_len        = input.int(20, "OBV EMA Period", group=grp_mom)
+use_obv_slope      = input.bool(true, "Require OBV Slope", group=grp_mom)
+obv_slope_len      = input.int(5, "OBV Slope Lookback", group=grp_mom)
+vol_sma_len        = input.int(24, "Volume SMA Period", group=grp_mom)
+vol_mult           = input.float(1.1, "Volume Multiplier", step=0.1, group=grp_mom)
+adx_len            = input.int(14, "ADX Period", group=grp_mom)
+adx_thold          = input.int(24, "ADX Threshold", group=grp_mom)
+require_adx_rising = input.bool(true, "Require ADX Rising", group=grp_mom)
+use_di_filter      = input.bool(true, "Require DI Filter", group=grp_mom)
+cci_len            = input.int(20, "CCI Period", group=grp_mom)
+cci_upper          = input.float(100, "CCI Upper Level", group=grp_mom)
+cci_lower          = input.float(-100, "CCI Lower Level", group=grp_mom)
+
+grp_noise = "6️⃣ Whipsaw & Confluence Settings"
+min_bars_between  = input.int(6, "Minimum Bars Between Signals", minval=0, group=grp_noise)
+confirm_bars      = input.int(1, "Confirmation Bars", minval=1, group=grp_noise)
+use_price_buffer  = input.bool(true, "Require Price Buffer", group=grp_noise)
+price_buffer_mult = input.float(0.25, "Price Buffer (x ATR)", step=0.05, group=grp_noise)
+use_atr_filter    = input.bool(true, "ATR Volatility Filter", group=grp_noise)
+atr_min_pct       = input.float(0.05, "Min ATR %", step=0.01, group=grp_noise)
+atr_max_pct       = input.float(3.0, "Max ATR %", step=0.1, group=grp_noise)
+min_confluence    = input.int(4, "Min Confluence Score Required", minval=0, group=grp_noise)
+
+// ══════════════════════════════════════════════════════════
+// حسابات FLI والاتجاه
+// ══════════════════════════════════════════════════════════
+sma_val  = ta.sma(close, bb_period)
+std_val  = ta.stdev(close, bb_period)
+bb_upper = sma_val + std_val * bb_mult
+bb_lower = sma_val - std_val * bb_mult
+
+int bb_signal = close > bb_upper ? 1 : close < bb_lower ? -1 : 0
+atr_val   = ta.atr(atr_period)
+
+var float trendline = na
+if bb_signal == 1
+    float raw_up = low - (use_atr ? atr_val : 0.0)
+    trendline := na(trendline[1]) ? raw_up : math.max(raw_up, trendline[1])
+else if bb_signal == -1
+    float raw_down = high + (use_atr ? atr_val : 0.0)
+    trendline := na(trendline[1]) ? raw_down : math.min(raw_down, trendline[1])
+else
+    trendline := na(trendline[1]) ? close : trendline[1]
+
+int itrend = 0
+if not na(trendline) and not na(trendline[1])
+    itrend := trendline > trendline[1] ? 1 : trendline < trendline[1] ? -1 : itrend[1]
+
+htf_ema     = request.security(syminfo.tickerid, htf_timeframe, ta.ema(close, htf_ema_len), lookahead=barmerge.lookahead_off)
+htf_bullish = close > htf_ema
+htf_bearish = close < htf_ema
+
+custom_obv        = ta.obv
+obv_smooth        = ta.ema(custom_obv, obv_ema_len)
+obv_bullish_base  = custom_obv > obv_smooth
+obv_bearish_base  = custom_obv < obv_smooth
+obv_slope_bullish = custom_obv > custom_obv[obv_slope_len]
+obv_slope_bearish = custom_obv < custom_obv[obv_slope_len]
+
+vol_avg        = ta.sma(volume, vol_sma_len)
+high_liquidity = volume > vol_avg * vol_mult
+
+[diplus, diminus, adx_val] = ta.dmi(adx_len, adx_len)
+adx_trending = adx_val >= adx_thold and (not require_adx_rising or adx_val > adx_val[1])
+di_bullish   = diplus > diminus
+di_bearish   = diminus > diplus
+
+cci_val     = ta.cci(close, cci_len)
+cci_bullish = cci_val > cci_upper
+cci_bearish = cci_val < cci_lower
+
+atr_pct = atr_val / close * 100
+atr_ok  = not use_atr_filter or (atr_pct >= atr_min_pct and atr_pct <= atr_max_pct)
+
+buffer_ok_buy  = not use_price_buffer or (close - trendline > atr_val * price_buffer_mult)
+buffer_ok_sell = not use_price_buffer or (trendline - close > atr_val * price_buffer_mult)
+
+score_buy  = (obv_bullish_base ? 1 : 0) + (use_obv_slope and obv_slope_bullish ? 1 : 0) + (high_liquidity ? 1 : 0) + (adx_trending ? 1 : 0) + (use_di_filter and di_bullish ? 1 : 0) + (cci_bullish ? 1 : 0)
+score_sell = (obv_bearish_base ? 1 : 0) + (use_obv_slope and obv_slope_bearish ? 1 : 0) + (high_liquidity ? 1 : 0) + (adx_trending ? 1 : 0) + (use_di_filter and di_bearish ? 1 : 0) + (cci_bearish ? 1 : 0)
+
+var int trend_persist = 0
+trend_persist := itrend == itrend[1] ? trend_persist + 1 : 0
+
+confirm_ready_up   = itrend == 1 and trend_persist == (confirm_bars - 1)
+confirm_ready_down = itrend == -1 and trend_persist == (confirm_bars - 1)
+
+// شروط التصفيات المساندة
+liq_buy_ok  = not use_oi_filter or shortLiquidation[1] or shortLiquidation[2] or shortLiquidation[3]
+liq_sell_ok = not use_oi_filter or longLiquidation[1] or longLiquidation[2] or longLiquidation[3]
+
+// شروط هيكل السوق
+smc_buy_ok  = not use_smc_filter or in_discount_zone
+smc_sell_ok = not use_smc_filter or in_premium_zone
+
+raw_buy  = confirm_ready_up   and (not use_htf_filter or htf_bullish) and atr_ok and buffer_ok_buy  and score_buy  >= min_confluence and liq_buy_ok  and smc_buy_ok
+raw_sell = confirm_ready_down and (not use_htf_filter or htf_bearish) and atr_ok and buffer_ok_sell and score_sell >= min_confluence and liq_sell_ok and smc_sell_ok
+
+var int last_signal_bar = na
+buy_condition  = raw_buy  and (na(last_signal_bar) or (bar_index - last_signal_bar) >= min_bars_between)
+sell_condition = raw_sell and (na(last_signal_bar) or (bar_index - last_signal_bar) >= min_bars_between)
+
+if buy_condition or sell_condition
+    last_signal_bar := bar_index
+
+// ══════════════════════════════════════════════════════════
+// 7️⃣ إدارة وقف الخسارة المتحرك (Trailing Stop Loss) والأهداف
+// ══════════════════════════════════════════════════════════
+var float current_sl       = na
+var float current_tp1      = na
+var float current_tp2      = na
+var int   current_position = 0
+
+if buy_condition
+    current_sl       := trendline - (sl_atr_mult * atr_val)
+    current_tp1       := close + (tp1_atr_mult * atr_val)
+    current_tp2       := close + (tp2_atr_mult * atr_val)
+    current_position := 1
+else if sell_condition
+    current_sl       := trendline + (sl_atr_mult * atr_val)
+    current_tp1       := close - (tp1_atr_mult * atr_val)
+    current_tp2       := close - (tp2_atr_mult * atr_val)
+    current_position := -1
+
+// منطق الـ Trailing SL (رفع/خفض الوقف حركياً مع تحرك السعر لصالح الصفقة)
+if current_position == 1
+    float potential_sl = low - (sl_atr_mult * atr_val)
+    current_sl := math.max(current_sl, potential_sl) // يرفعه فقط ولا ينزله
+else if current_position == -1
+    float potential_sl = high + (sl_atr_mult * atr_val)
+    current_sl := math.min(current_sl, potential_sl) // ينزله فقط ولا يرفعه
+
+// شروط الإغلاق والخروج
+exit_condition = ta.crossunder(adx_val, ta.ema(adx_val, 5)) or ta.crossunder(cci_val, 0) or ta.crossover(cci_val, 0)
+
+if exit_condition or (current_position == 1 and low < current_sl) or (current_position == -1 and high > current_sl)
+    current_sl       := na
+    current_tp1       := na
+    current_tp2       := na
+    current_position := 0
+
+// ══════════════════════════════════════════════════════════
+// 8️⃣ الرسم المرئي
+// ══════════════════════════════════════════════════════════
+fli_color = itrend == 1 ? color.green : itrend == -1 ? color.red : color.gray
+plot(trendline, title="FLI Trendline", color=fli_color, linewidth=2)
+plot(current_sl, title="Trailing Dynamic SL", color=color.new(color.orange, 0), style=plot.style_linebr, linewidth=2)
+
+// رسم خط الاتزان الهيكلي (Equilibrium Level)
+plot(use_smc_filter ? eq_level : na, title="SMC Equilibrium (50%)", color=color.new(color.purple, 50), style=plot.style_dashed, linewidth=1)
+
+plotshape(longLiquidation, title='تصفية Long عنيفة', style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
+plotshape(shortLiquidation, title='تصفية Short عنيفة', style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+
+plotshape(buy_condition, title="SNIPER BUY", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.large, text="BUY")
+plotshape(sell_condition, title="SNIPER SELL", style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.large, text="SELL")
+plotshape(exit_condition and current_position[1] != 0, title="EXIT", style=shape.xcross, location=location.top, color=color.blue, size=size.small, text="EXIT")
+
+// ══════════════════════════════════════════════════════════
+// 9️⃣ التنبيهات
+// ══════════════════════════════════════════════════════════
+alertcondition(buy_condition, title="Sniper Buy Alert", message="🟢 إشارة شراء قناصة مؤكدة مع SMC والتصفيات")
+alertcondition(sell_condition, title="Sniper Sell Alert", message="🔴 إشارة بيع قناصة مؤكدة مع SMC والتصفيات")

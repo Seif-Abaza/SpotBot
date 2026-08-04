@@ -1,0 +1,106 @@
+//@version=6
+indicator('AlligatorFlex Reversal Engine', overlay = true)
+
+// ==========================
+// Inputs
+// ==========================
+jawLength = input.int(13, minval = 5, maxval = 100, title = 'Jaw Length')
+teethLength = input.int(8, minval = 5, maxval = 100, title = 'Teeth Length')
+lipsLength = input.int(5, minval = 5, maxval = 100, title = 'Lips Length')
+
+signalMode = input.string('Sensitive', title = 'Signal Mode', options = ['Sensitive', 'Balanced', 'Strict'], tooltip = 'Sensitive shows more signals. Balanced applies moderate filtering. Strict requires stronger volume, range, and slope confirmation.')
+
+volumeLength = input.int(14, minval = 1, maxval = 100, title = 'Volume Length')
+rangeLength = input.int(5, minval = 1, maxval = 100, title = 'Range Length')
+
+customSlopeThreshold = input.float(0.0005, title = 'Custom Slope Threshold', tooltip = 'Used only when Custom Filters is enabled.')
+customVolumeMultiplier = input.float(0.5, title = 'Custom Volume Multiplier', tooltip = 'Used only when Custom Filters is enabled.')
+customRangeMultiplier = input.float(0.5, title = 'Custom Range Multiplier', tooltip = 'Used only when Custom Filters is enabled.')
+
+useCustomFilters = input.bool(false, title = 'Use Custom Filters')
+
+showLabels = input.bool(true, title = 'Show Signal Labels')
+showBackground = input.bool(true, title = 'Show Signal Background')
+showAlertsInfo = input.bool(true, title = 'Enable Alert Conditions')
+
+// ==========================
+// Dynamic filter settings
+// ==========================
+slopeThreshold = useCustomFilters ? customSlopeThreshold : signalMode == 'Sensitive' ? 0.0001 : signalMode == 'Balanced' ? 0.0005 : 0.0010
+
+volumeMultiplier = useCustomFilters ? customVolumeMultiplier : signalMode == 'Sensitive' ? 0.5 : signalMode == 'Balanced' ? 1.0 : 1.5
+
+rangeMultiplier = useCustomFilters ? customRangeMultiplier : signalMode == 'Sensitive' ? 0.5 : signalMode == 'Balanced' ? 1.0 : 1.5
+
+// ==========================
+// Alligator lines
+// ==========================
+medianPrice = hl2
+
+jaw = ta.ema(medianPrice, jawLength)
+teeth = ta.ema(medianPrice, teethLength)
+lips = ta.ema(medianPrice, lipsLength)
+
+// ==========================
+// Slopes
+// ==========================
+jawSlope = jaw - jaw[1]
+teethSlope = teeth - teeth[1]
+lipsSlope = lips - lips[1]
+
+// ==========================
+// Volume and range validation
+// ==========================
+avgVolume = ta.sma(volume, volumeLength)
+
+rangeHigh = ta.highest(high, rangeLength)
+rangeLow = ta.lowest(low, rangeLength)
+priceRange = rangeHigh - rangeLow
+avgRange = ta.sma(priceRange, rangeLength)
+
+validTrendRange = avgRange > 0 ? priceRange > avgRange * rangeMultiplier : false
+highVolume = avgVolume > 0 ? volume > avgVolume * volumeMultiplier : false
+
+strongTrend = math.abs(jawSlope) > slopeThreshold and math.abs(teethSlope) > slopeThreshold and math.abs(lipsSlope) > slopeThreshold
+
+validSignal = strongTrend and validTrendRange and highVolume
+
+// ==========================
+// Reversal / shift logic
+// ==========================
+// Bullish Shift:
+// Lines still in bearish order, but all slopes are rising.
+bullShift = validSignal and lips < teeth and teeth < jaw and jawSlope > 0 and teethSlope > 0 and lipsSlope > 0
+
+// Bearish Shift:
+// Lines still in bullish order, but all slopes are falling.
+bearShift = validSignal and lips > teeth and teeth > jaw and jawSlope < 0 and teethSlope < 0 and lipsSlope < 0
+
+// ==========================
+// Alligator Line colors
+// ==========================
+jawColor = jawSlope > 0 ? color.green : color.red
+teethColor = teethSlope > 0 ? color.green : color.red
+lipsColor = lipsSlope > 0 ? color.green : color.red
+
+plot(jaw, color = jawColor, title = 'Jaw')
+plot(teeth, color = teethColor, title = 'Teeth')
+plot(lips, color = lipsColor, title = 'Lips')
+
+// ==========================
+// Alligator Visuals
+// ==========================
+bgcolor(showBackground and bullShift ? color.new(color.green, 90) : na, title = 'Bullish Shift Highlight')
+bgcolor(showBackground and bearShift ? color.new(color.red, 90) : na, title = 'Bearish Shift Highlight')
+
+if showLabels and bullShift
+    label.new(bar_index, low - 5 * syminfo.mintick, 'BullSHift', size = size.small, style = label.style_label_up, color = color.green, textcolor = color.white)
+
+if showLabels and bearShift
+    label.new(bar_index, high + 5 * syminfo.mintick, 'BearShift', size = size.small, style = label.style_label_down, color = color.red, textcolor = color.white)
+
+// ==========================
+// Alligator Alerts
+// ==========================
+alertcondition(bullShift, title = 'Bullish Shift', message = 'AlligatorFlex Bullish Shift detected.')
+alertcondition(bearShift, title = 'Bearish Shift', message = 'AlligatorFlex Bearish Shift detected.')

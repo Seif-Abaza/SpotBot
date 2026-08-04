@@ -16,10 +16,10 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    # ── Apply QSS (Targov v3.0) ──
+    #  Apply QSS (Targov v3.0)
     app.setStyleSheet(STYLE_QSS)
 
-    # ── Palette fallback ──
+    #  Palette fallback
     pal = QPalette()
     pal.setColor(QPalette.ColorRole.Window, QColor("#0b0e11"))
     pal.setColor(QPalette.ColorRole.WindowText, QColor("#eaecef"))

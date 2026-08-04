@@ -6,27 +6,42 @@ Two independent indicator systems:
   * IndicatorEngine — RSI / MACD / Bollinger / EMA / SMA used by the
     trading strategy.
 """
+
 import math
 
 try:
     import numpy as np
+
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
 
 try:
     import pandas as pd
+
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
 
 from spotbot.constants import (
+    FLI_ADX_LEN,
+    FLI_ADX_LEVEL,
+    FLI_ATR_PERIOD,
+    FLI_BB_DEV,
+    FLI_BB_PERIOD,
+    FLI_CCI_BUFFER,
+    FLI_CCI_LEN,
+    FLI_CCI_LEVEL,
+    FLI_MIN_SCORE,
+    FLI_OBV_SMA_LEN,
+    FLI_USE_ADX,
+    FLI_USE_ATR,
+    FLI_USE_CCI,
+    FLI_USE_OBV,
     FLOAT_EPS,
-    FLI_BB_PERIOD, FLI_BB_DEV, FLI_USE_ATR, FLI_ATR_PERIOD,
-    FLI_USE_CCI, FLI_CCI_LEN, FLI_CCI_LEVEL, FLI_CCI_BUFFER,
-    FLI_USE_ADX, FLI_ADX_LEN, FLI_ADX_LEVEL,
-    FLI_USE_OBV, FLI_OBV_SMA_LEN, FLI_MIN_SCORE,
 )
+
+
 def fli_compute_atr(df: "pd.DataFrame", period: int) -> "pd.Series":
     """Average True Range."""
     high, low, close = df["high"], df["low"], df["close"]
@@ -232,7 +247,6 @@ def _compute_fli_data(candles):
         return None
 
 
-
 class TradeSignal(Exception):
     """Raised when the trading engine refuses to act on a signal."""
 
@@ -352,6 +366,7 @@ def _pad(candles, data):
 # CombinedMomFliHullStrategy from new_backtest.ipynb.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 # --- Old backtest function preserved for reference ---
 def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:
     """[LEGACY] Old FLI-only backtest. Replaced by backtest_combined_strategy.
@@ -365,9 +380,11 @@ def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:
 # Uses: talib, backtesting.py
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def _compute_hma(series, length):
     """Hull Moving Average (HMA)."""
     import talib
+
     half_length = int(length / 2)
     sqrt_length = int(np.round(np.sqrt(length)))
     wma_half = talib.WMA(series, half_length)
@@ -378,6 +395,7 @@ def _compute_hma(series, length):
 def _compute_ehma(series, length):
     """EHMA — EMA-based Hull Moving Average."""
     import talib
+
     half_length = int(length / 2)
     sqrt_length = int(np.round(np.sqrt(length)))
     ema_half = talib.EMA(series, half_length)
@@ -388,6 +406,7 @@ def _compute_ehma(series, length):
 def _compute_thma(series, length):
     """THMA — Triangular Hull Moving Average."""
     import talib
+
     third_length = int(length / 3)
     half_length = int(length / 2)
     wma_third = talib.WMA(series, third_length)
@@ -396,9 +415,17 @@ def _compute_thma(series, length):
     return talib.WMA(3 * wma_third - wma_half - wma_full, length)
 
 
-def new_compute_all_indicators(df, bb_period=20, bb_dev=2.0, atr_period=14,
-                                atr_mult=1.0, mom_period=10, hull_mode='Hma',
-                                hull_length=55, hull_mult=1.0):
+def new_compute_all_indicators(
+    df,
+    bb_period=20,
+    bb_dev=2.0,
+    atr_period=14,
+    atr_mult=1.0,
+    mom_period=10,
+    hull_mode="Hma",
+    hull_length=55,
+    hull_mult=1.0,
+):
     """Compute all indicators needed by CombinedMomFliHullStrategy.
 
     Adds to *df* (in-place copy): Bollinger Bands, ATR, MOM, FollowLine,
@@ -421,17 +448,18 @@ def new_compute_all_indicators(df, bb_period=20, bb_dev=2.0, atr_period=14,
     import talib
 
     df = df.copy()
-    close = df['Close'].to_numpy(dtype=float)
-    high = df['High'].to_numpy(dtype=float)
-    low = df['Low'].to_numpy(dtype=float)
+    close = df["Close"].to_numpy(dtype=float)
+    high = df["High"].to_numpy(dtype=float)
+    low = df["Low"].to_numpy(dtype=float)
 
     # 1. Bollinger Bands + ATR
-    upper, mid, lower = talib.BBANDS(close, timeperiod=bb_period,
-                                     nbdevup=bb_dev, nbdevdn=bb_dev)
+    upper, mid, lower = talib.BBANDS(
+        close, timeperiod=bb_period, nbdevup=bb_dev, nbdevdn=bb_dev
+    )
     atr = talib.ATR(high, low, close, timeperiod=atr_period)
 
     # 2. Momentum
-    df['MOM'] = talib.MOM(close, timeperiod=mom_period)
+    df["MOM"] = talib.MOM(close, timeperiod=mom_period)
 
     # 3. FollowLine (FLI)
     fl = np.full_like(close, np.nan)
@@ -462,20 +490,20 @@ def new_compute_all_indicators(df, bb_period=20, bb_dev=2.0, atr_period=14,
         trend[i] = curr_trend
         fl[i] = curr_fl
 
-    df['FollowLine'] = fl
-    df['FollowTrend'] = trend
+    df["FollowLine"] = fl
+    df["FollowTrend"] = trend
 
     # 4. Hull MA
     adj_length = int(hull_length * hull_mult)
-    if hull_mode == 'Hma':
-        df['HullMA'] = _compute_hma(close, adj_length)
-    elif hull_mode == 'Ehma':
-        df['HullMA'] = _compute_ehma(close, adj_length)
-    elif hull_mode == 'Thma':
-        df['HullMA'] = _compute_thma(close, adj_length)
+    if hull_mode == "Hma":
+        df["HullMA"] = _compute_hma(close, adj_length)
+    elif hull_mode == "Ehma":
+        df["HullMA"] = _compute_ehma(close, adj_length)
+    elif hull_mode == "Thma":
+        df["HullMA"] = _compute_thma(close, adj_length)
     else:
-        df['HullMA'] = np.nan
-    df['HullMA_Shifted'] = df['HullMA'].shift(2)
+        df["HullMA"] = np.nan
+    df["HullMA_Shifted"] = df["HullMA"].shift(2)
 
     return df
 
@@ -486,6 +514,7 @@ class CombinedMomFliHullStrategy:
     Defined as a callable class so we can instantiate the inner ``Strategy``
     inside ``backtest_combined_strategy`` where the DataFrame is available.
     """
+
     pass
 
 
@@ -501,14 +530,15 @@ def _make_combined_strategy_class():
         """Combined MOM + FLI + Hull MA strategy (from new_backtest.ipynb)."""
 
         def init(self):
-            self.mom = self.I(lambda x: x, self.data.MOM, name='MOM')
-            self.fli_trend = self.I(lambda x: x, self.data.FollowTrend,
-                                    name='FollowTrend')
-            self.fli_line = self.I(lambda x: x, self.data.FollowLine,
-                                   name='FollowLine')
-            self.hull_ma = self.I(lambda x: x, self.data.HullMA, name='HullMA')
+            self.mom = self.I(lambda x: x, self.data.MOM, name="MOM")
+            self.fli_trend = self.I(
+                lambda x: x, self.data.FollowTrend, name="FollowTrend"
+            )
+            self.fli_line = self.I(lambda x: x, self.data.FollowLine, name="FollowLine")
+            self.hull_ma = self.I(lambda x: x, self.data.HullMA, name="HullMA")
             self.hull_ma_shifted = self.I(
-                lambda x: x, self.data.HullMA_Shifted, name='HullMA_Shifted')
+                lambda x: x, self.data.HullMA_Shifted, name="HullMA_Shifted"
+            )
 
             # MOM thresholds
             self.up_zone = 0.00354
@@ -538,16 +568,16 @@ def _make_combined_strategy_class():
             mom_exit_short = mom_now > self.middle_zone
 
             # FLI signals
-            fli_buy = (fli_trend_now == 1 and fli_trend_prev != 1)
-            fli_sell = (fli_trend_now == -1 and fli_trend_prev != -1)
-            fli_exit_long = (fli_trend_now != 1 and fli_trend_prev == 1)
-            fli_exit_short = (fli_trend_now != -1 and fli_trend_prev == -1)
+            fli_buy = fli_trend_now == 1 and fli_trend_prev != 1
+            fli_sell = fli_trend_now == -1 and fli_trend_prev != -1
+            fli_exit_long = fli_trend_now != 1 and fli_trend_prev == 1
+            fli_exit_short = fli_trend_now != -1 and fli_trend_prev == -1
 
             # Hull signals
-            hull_buy = (hull_trend == 1 and hull_trend_prev != 1)
-            hull_sell = (hull_trend == -1 and hull_trend_prev != -1)
-            hull_exit_long = (hull_trend == -1 and hull_trend_prev == 1)
-            hull_exit_short = (hull_trend == 1 and hull_trend_prev == -1)
+            hull_buy = hull_trend == 1 and hull_trend_prev != 1
+            hull_sell = hull_trend == -1 and hull_trend_prev != -1
+            hull_exit_long = hull_trend == -1 and hull_trend_prev == 1
+            hull_exit_short = hull_trend == 1 and hull_trend_prev == -1
 
             # --- Entry: Long ---
             if (mom_buy or (fli_buy and not mom_sell) or hull_buy) and hull_trend == 1:
@@ -557,7 +587,9 @@ def _make_combined_strategy_class():
                     self.buy()
 
             # --- Entry: Short ---
-            elif (mom_sell or (fli_sell and not mom_buy) or hull_sell) and hull_trend == -1:
+            elif (
+                mom_sell or (fli_sell and not mom_buy) or hull_sell
+            ) and hull_trend == -1:
                 if self.position.is_long:
                     self.position.close()
                 if not self.position.is_short:
@@ -586,24 +618,24 @@ def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
         return pd.DataFrame()
 
     bt = pd.DataFrame(index=df.index)
-    bt['Open'] = df['open'].values
-    bt['High'] = df['high'].values
-    bt['Low'] = df['low'].values
-    bt['Close'] = df['close'].values
-    bt['Volume'] = df['volume'].values
+    bt["Open"] = df["open"].values
+    bt["High"] = df["high"].values
+    bt["Low"] = df["low"].values
+    bt["Close"] = df["close"].values
+    bt["Volume"] = df["volume"].values
 
     # Ensure DatetimeIndex (required by backtesting.py)
     # The 'time' column from fli_ohlcv_to_df contains pd.Timestamp objects,
     # so try direct conversion first, then fallback to numeric unit parsing.
     if not isinstance(bt.index, pd.DatetimeIndex):
-        if 'time' in df.columns:
+        if "time" in df.columns:
             try:
                 # time column contains pd.Timestamp — convert directly
-                idx = pd.to_datetime(df['time'], utc=True)
+                idx = pd.to_datetime(df["time"], utc=True)
                 bt.index = idx
             except Exception:
                 try:
-                    idx = pd.to_datetime(df['time'], unit='s', utc=True)
+                    idx = pd.to_datetime(df["time"], unit="s", utc=True)
                     bt.index = idx
                 except Exception:
                     pass
@@ -613,13 +645,15 @@ def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
     return bt
 
 
-def backtest_combined_strategy(df: "pd.DataFrame",
-                                investment: float = 10.0,
-                                commission: float = 0.0001,
-                                hull_mode: str = 'Hma',
-                                hull_length: int = 55,
-                                hull_mult: float = 1.0,
-                                mom_period: int = 10) -> dict:
+def backtest_combined_strategy(
+    df: "pd.DataFrame",
+    investment: float = 10.0,
+    commission: float = 0.0001,
+    hull_mode: str = "Hma",
+    hull_length: int = 55,
+    hull_mult: float = 1.0,
+    mom_period: int = 10,
+) -> dict:
     """Run CombinedMomFliHullStrategy backtest via backtesting.py.
 
     Accepts a SpotBot-style DataFrame (lowercase cols), converts it, computes
@@ -632,8 +666,12 @@ def backtest_combined_strategy(df: "pd.DataFrame",
     """
     markers = []
     stats = {
-        "total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
-        "total_pnl_pct": 0.0, "equity_final": investment,
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "total_pnl_pct": 0.0,
+        "equity_final": investment,
         "equity_peak": investment,
     }
 
@@ -658,7 +696,7 @@ def backtest_combined_strategy(df: "pd.DataFrame",
         )
 
         # Drop rows with NaN in required columns (warm-up period)
-        bt_df = bt_df.dropna(subset=['MOM', 'FollowTrend', 'HullMA']).copy()
+        bt_df = bt_df.dropna(subset=["MOM", "FollowTrend", "HullMA"]).copy()
         if len(bt_df) < 30:
             return {"markers": markers, "stats": stats}
 
@@ -714,30 +752,38 @@ def backtest_combined_strategy(df: "pd.DataFrame",
 
                 if size > 0:  # Long trade
                     if entry_time:
-                        markers.append({
-                            "time": entry_time,
-                            "action": "bt_buy",
-                            "price": entry_price,
-                        })
+                        markers.append(
+                            {
+                                "time": entry_time,
+                                "action": "bt_buy",
+                                "price": entry_price,
+                            }
+                        )
                     if exit_time:
-                        markers.append({
-                            "time": exit_time,
-                            "action": "bt_sell",
-                            "price": exit_price,
-                        })
+                        markers.append(
+                            {
+                                "time": exit_time,
+                                "action": "bt_sell",
+                                "price": exit_price,
+                            }
+                        )
                 elif size < 0:  # Short trade
                     if entry_time:
-                        markers.append({
-                            "time": entry_time,
-                            "action": "bt_sell",
-                            "price": entry_price,
-                        })
+                        markers.append(
+                            {
+                                "time": entry_time,
+                                "action": "bt_sell",
+                                "price": entry_price,
+                            }
+                        )
                     if exit_time:
-                        markers.append({
-                            "time": exit_time,
-                            "action": "bt_buy",
-                            "price": exit_price,
-                        })
+                        markers.append(
+                            {
+                                "time": exit_time,
+                                "action": "bt_buy",
+                                "price": exit_price,
+                            }
+                        )
 
         # Sort markers by time
         markers.sort(key=lambda m: m.get("time", 0))
@@ -745,6 +791,7 @@ def backtest_combined_strategy(df: "pd.DataFrame",
     except Exception as e:
         print(f"[backtest_combined_strategy] Error: {e}")
         import traceback
+
         traceback.print_exc()
 
     return {"markers": markers, "stats": stats}

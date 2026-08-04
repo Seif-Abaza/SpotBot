@@ -168,9 +168,9 @@ class MainWindow(QWidget):
         # ── Per-pair FLI worker registry (each open tab gets its own) ──
         self._fli_workers: dict[str, FLIChartWorker] = {}
         self._pair_candles: dict[str, list] = {}  # pair → last candles
-        self._pair_last_chart_ts: dict[
-            str, int
-        ] = {}  # pair → last candle ts sent to chart
+        self._pair_last_chart_ts: dict[str, int] = (
+            {}
+        )  # pair → last candle ts sent to chart
         self._pair_markers: dict[str, list] = {}  # pair → last markers
         self._pair_fli_df: dict[str, object] = {}  # pair → last fli_df
         self._pair_chart_ready: dict[str, bool] = {}  # pair → chart loaded flag
@@ -212,9 +212,9 @@ class MainWindow(QWidget):
         # ── Simulation mode state ──
         self._simulation_active: bool = False
         self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
-        self._sim_process_workers: dict[
-            str, SimCandleProcessWorker
-        ] = {}  # pair → process worker
+        self._sim_process_workers: dict[str, SimCandleProcessWorker] = (
+            {}
+        )  # pair → process worker
         self._sim_processing: dict[str, bool] = {}  # pair → is processing?
         self._sim_base_price: float = 0.05
 
@@ -921,8 +921,6 @@ class MainWindow(QWidget):
         self._set_status(
             f"⚙️ Params updated: Signal={new_params.get('signal_source', 'fli').upper()}, "
             f"BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
-            f"ATR:{new_params['atr_period']}, CCI:{new_params['cci_len']}, "
-            f"ADX:{new_params['adx_len']}, OBV:{new_params['obv_sma_len']}, "
             f"MinScore:{new_params['min_score']}"
         )
 
@@ -976,7 +974,7 @@ class MainWindow(QWidget):
         self.dsbSimPrice.valueChanged.connect(self._on_sim_price_changed)
 
         # Add speed/price controls to the dedicated simControlsRow
-        if hasattr(self.ui, 'simControlsRow'):
+        if hasattr(self.ui, "simControlsRow"):
             self.ui.simControlsRow.addWidget(self.lblSimSpeed)
             self.ui.simControlsRow.addWidget(self.sliderSimSpeed)
             self.ui.simControlsRow.addWidget(self.lblSimSpeedVal)
@@ -1172,7 +1170,9 @@ class MainWindow(QWidget):
             parent=self,
         )
         worker.process_done.connect(self._on_sim_process_done)
-        worker.process_error.connect(lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}"))
+        worker.process_error.connect(
+            lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}")
+        )
         self._sim_process_workers[pair] = worker
         worker.start()
 
@@ -1240,7 +1240,9 @@ class MainWindow(QWidget):
         self._on_chart_ready(pair, enriched)
 
         # ── Evaluate alerts against the new candle ──
-        last_candle = enriched.get("candles", [])[-1:] if enriched.get("candles") else []
+        last_candle = (
+            enriched.get("candles", [])[-1:] if enriched.get("candles") else []
+        )
         if last_candle:
             self._evaluate_alerts(pair, last_candle[0], enriched.get("indicators"))
 
@@ -1317,7 +1319,11 @@ class MainWindow(QWidget):
                 itrend = int(r.get("itrend", 0))
                 v = float(tl)
                 if not (_math.isnan(v) or _math.isinf(v)):
-                    color = "#0ecb81" if itrend == 1 else ("#f6465d" if itrend == -1 else "#848e9c")
+                    color = (
+                        "#0ecb81"
+                        if itrend == 1
+                        else ("#f6465d" if itrend == -1 else "#848e9c")
+                    )
                     signal_pts.append({"time": t, "value": v, "color": color})
             bu = r.get("bb_upper", np.nan)
             bl = r.get("bb_lower", np.nan)
@@ -2134,7 +2140,11 @@ class MainWindow(QWidget):
                 parts.append("setFliSignalLine(" + _json.dumps(signal_pts) + ")")
         # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
         fli_trend_val = fli_data.get("fli_trend", 0) or 0
-        score_val = (fli_data.get("score_buy", 0) or 0) if fli_trend_val > 0 else (fli_data.get("score_sell", 0) or 0)
+        score_val = (
+            (fli_data.get("score_buy", 0) or 0)
+            if fli_trend_val > 0
+            else (fli_data.get("score_sell", 0) or 0)
+        )
         bbu_val = fli_data.get("bb_upper_val", 0) or 0
         bbl_val = fli_data.get("bb_lower_val", 0) or 0
         parts.append(
@@ -2998,6 +3008,7 @@ class MainWindow(QWidget):
     def _on_chart_candle_click(self, pair: str, time: int, price: float):
         """Open the Alert dialog when user clicks the chart."""
         from spotbot.ui.alert_dialog import AlertDialog, load_alerts
+
         session = self._sessions.get(pair)
         chart_tf = session.timeframe if session else "1h"
         dlg = AlertDialog(
@@ -3020,8 +3031,11 @@ class MainWindow(QWidget):
     def _draw_alert_price_lines(self, pair: str):
         """Draw horizontal dashed lines on the chart at each alert's price levels."""
         from spotbot.ui.alert_dialog import load_alerts
+
         alerts = load_alerts()
-        pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
+        pair_alerts = [
+            a for a in alerts if a.get("pair") == pair and a.get("enabled", True)
+        ]
         prices = []
         for a in pair_alerts:
             for c in a.get("conditions", []):
@@ -3043,7 +3057,7 @@ class MainWindow(QWidget):
         self._chart_js(pair, f"setAlertPriceLines({json.dumps(prices)});")
         session = self._sessions.get(pair)
         if session and session.candles:
-            indicators = getattr(session, 'indicators', None) or {}
+            indicators = getattr(session, "indicators", None) or {}
             self._evaluate_alerts(pair, session.candles[-1], indicators)
 
     def _evaluate_alerts(self, pair: str, candle: list, indicators: dict = None):
@@ -3052,9 +3066,12 @@ class MainWindow(QWidget):
         Supports multi-condition, 4 trigger frequency modes, expiration,
         and the new action system (popup, sound, limit order).
         """
-        from spotbot.ui.alert_dialog import load_alerts, save_alerts, append_alert_log
+        from spotbot.ui.alert_dialog import append_alert_log, load_alerts, save_alerts
+
         alerts = load_alerts()
-        pair_alerts = [a for a in alerts if a.get("pair") == pair and a.get("enabled", True)]
+        pair_alerts = [
+            a for a in alerts if a.get("pair") == pair and a.get("enabled", True)
+        ]
         if not pair_alerts:
             return
         close = float(candle[4])
@@ -3090,18 +3107,22 @@ class MainWindow(QWidget):
             # Evaluate conditions
             conditions = alert.get("conditions", [])
             if not conditions:
-                conditions = [{
-                    "condition_type": alert.get("condition_type", "Price"),
-                    "indicator": alert.get("indicator", ""),
-                    "operator": alert.get("operator", ""),
-                    "value1": alert.get("value1", 0),
-                    "value2": alert.get("value2", 0),
-                    "bars": 0,
-                    "interval": "",
-                }]
+                conditions = [
+                    {
+                        "condition_type": alert.get("condition_type", "Price"),
+                        "indicator": alert.get("indicator", ""),
+                        "operator": alert.get("operator", ""),
+                        "value1": alert.get("value1", 0),
+                        "value2": alert.get("value2", 0),
+                        "bars": 0,
+                        "interval": "",
+                    }
+                ]
             all_matched = True
             for cond in conditions:
-                matched = self._evaluate_single_condition(cond, close, candles, indicators)
+                matched = self._evaluate_single_condition(
+                    cond, close, candles, indicators
+                )
                 if not matched:
                     all_matched = False
                     break
@@ -3125,15 +3146,18 @@ class MainWindow(QWidget):
                         alerts[i] = updated_a
                         break
                     if not orig_a.get("id") and not alert_id:
-                        if (orig_a.get("pair") == updated_a.get("pair")
-                                and orig_a.get("value1") == updated_a.get("value1")
-                                and orig_a.get("operator") == updated_a.get("operator")):
+                        if (
+                            orig_a.get("pair") == updated_a.get("pair")
+                            and orig_a.get("value1") == updated_a.get("value1")
+                            and orig_a.get("operator") == updated_a.get("operator")
+                        ):
                             alerts[i] = updated_a
                             break
             save_alerts(alerts)
 
-    def _evaluate_single_condition(self, cond: dict, close: float,
-                                     candles: list, indicators: dict) -> bool:
+    def _evaluate_single_condition(
+        self, cond: dict, close: float, candles: list, indicators: dict
+    ) -> bool:
         """Evaluate a single condition against current data."""
         cond_type = cond.get("condition_type", "Price")
         op = cond.get("operator", "")
@@ -3175,8 +3199,9 @@ class MainWindow(QWidget):
         return self._check_condition(op, val, prev_val, v1, v2)
 
     @staticmethod
-    def _check_condition(op: str, value: float, prev_value: float,
-                          v1: float, v2: float) -> bool:
+    def _check_condition(
+        op: str, value: float, prev_value: float, v1: float, v2: float
+    ) -> bool:
         """Core condition checker for 9 non-Moving operators."""
         if op == "Crossing":
             return (prev_value <= v1 <= value) or (prev_value >= v1 >= value)
@@ -3246,9 +3271,15 @@ class MainWindow(QWidget):
             return 0.0
         try:
             key_map = {
-                "RSI": "rsi", "MACD Line": "macd", "MACD Signal": "macd_signal",
-                "CCI": "cci", "ADX": "adx", "OBV": "obv",
-                "BB Upper": "bb_upper", "BB Lower": "bb_lower", "Trendline": "trendline",
+                "RSI": "rsi",
+                "MACD Line": "macd",
+                "MACD Signal": "macd_signal",
+                "CCI": "cci",
+                "ADX": "adx",
+                "OBV": "obv",
+                "BB Upper": "bb_upper",
+                "BB Lower": "bb_lower",
+                "Trendline": "trendline",
             }
             for key, ind_key in key_map.items():
                 if key in name:
@@ -3259,15 +3290,23 @@ class MainWindow(QWidget):
         return 0.0
 
     @staticmethod
-    def _get_indicator_value_at(name: str, indicators: dict, offset: int) -> float | None:
+    def _get_indicator_value_at(
+        name: str, indicators: dict, offset: int
+    ) -> float | None:
         """Extract an indicator value at a historical offset."""
         if not indicators:
             return None
         try:
             key_map = {
-                "RSI": "rsi", "MACD Line": "macd", "MACD Signal": "macd_signal",
-                "CCI": "cci", "ADX": "adx", "OBV": "obv",
-                "BB Upper": "bb_upper", "BB Lower": "bb_lower", "Trendline": "trendline",
+                "RSI": "rsi",
+                "MACD Line": "macd",
+                "MACD Signal": "macd_signal",
+                "CCI": "cci",
+                "ADX": "adx",
+                "OBV": "obv",
+                "BB Upper": "bb_upper",
+                "BB Lower": "bb_lower",
+                "Trendline": "trendline",
             }
             for key, ind_key in key_map.items():
                 if key in name:
@@ -3285,6 +3324,7 @@ class MainWindow(QWidget):
         Supports new format (actions dict) and legacy format (action string).
         """
         from spotbot.ui.alert_dialog import append_alert_log
+
         actions = alert.get("actions", {})
         name = alert.get("name", "")
         conds = alert.get("conditions", [alert])
@@ -3295,14 +3335,25 @@ class MainWindow(QWidget):
         if msg_template:
             formatted_msg = msg_template.replace("{{pair}}", str(pair))
             formatted_msg = formatted_msg.replace("{{price}}", f"{price:.6g}")
-            formatted_msg = formatted_msg.replace("{{indicator}}", first_cond.get("indicator", ""))
-            formatted_msg = formatted_msg.replace("{{value}}", str(first_cond.get("value1", 0)))
-            formatted_msg = formatted_msg.replace("{{operator}}", first_cond.get("operator", ""))
-            formatted_msg = formatted_msg.replace("{{time}}", datetime.now().strftime("%H:%M:%S"))
+            formatted_msg = formatted_msg.replace(
+                "{{indicator}}", first_cond.get("indicator", "")
+            )
+            formatted_msg = formatted_msg.replace(
+                "{{value}}", str(first_cond.get("value1", 0))
+            )
+            formatted_msg = formatted_msg.replace(
+                "{{operator}}", first_cond.get("operator", "")
+            )
+            formatted_msg = formatted_msg.replace(
+                "{{time}}", datetime.now().strftime("%H:%M:%S")
+            )
         # Log to alert log file
         log_entry = {
-            "pair": pair, "name": name, "message": formatted_msg,
-            "price": price, "conditions": conds,
+            "pair": pair,
+            "name": name,
+            "message": formatted_msg,
+            "price": price,
+            "conditions": conds,
         }
         append_alert_log(log_entry)
         # Pop-up notification
@@ -3330,14 +3381,17 @@ class MainWindow(QWidget):
             try:
                 import subprocess
                 import sys
+
                 if sys.platform == "win32":
                     import winsound
+
                     if sound_path and os.path.exists(sound_path):
                         winsound.PlaySound(sound_path, winsound.SND_FILENAME)
                     else:
                         winsound.Beep(2000, 300)
                 else:
                     import shutil
+
                     played = False
                     # Try the user-specified sound file first
                     if sound_path and os.path.exists(sound_path):
@@ -3348,18 +3402,33 @@ class MainWindow(QWidget):
                             try:
                                 if player == "ffplay":
                                     subprocess.Popen(
-                                        [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        [
+                                            bin_path,
+                                            "-nodisp",
+                                            "-autoexit",
+                                            "-loglevel",
+                                            "quiet",
+                                            sound_path,
+                                        ],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 elif player == "mpv":
                                     subprocess.Popen(
-                                        [bin_path, "--no-video", "--no-terminal", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        [
+                                            bin_path,
+                                            "--no-video",
+                                            "--no-terminal",
+                                            sound_path,
+                                        ],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 else:
                                     subprocess.Popen(
                                         [bin_path, "-q", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 played = True
                                 break
@@ -3367,7 +3436,14 @@ class MainWindow(QWidget):
                                 continue
                     # Fallback: system bell sound
                     if not played:
-                        sfx_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "SFX")
+                        sfx_dir = os.path.join(
+                            os.path.dirname(
+                                os.path.dirname(
+                                    os.path.dirname(os.path.abspath(__file__))
+                                )
+                            ),
+                            "SFX",
+                        )
                         fallback_candidates = [
                             os.path.join(sfx_dir, "notif.wav"),
                             "/usr/share/sounds/freedesktop/stereo/bell.oga",
@@ -3381,18 +3457,33 @@ class MainWindow(QWidget):
                                     try:
                                         if player == "ffplay":
                                             subprocess.Popen(
-                                                [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                [
+                                                    bin_path,
+                                                    "-nodisp",
+                                                    "-autoexit",
+                                                    "-loglevel",
+                                                    "quiet",
+                                                    fb_path,
+                                                ],
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         elif player == "mpv":
                                             subprocess.Popen(
-                                                [bin_path, "--no-video", "--no-terminal", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                [
+                                                    bin_path,
+                                                    "--no-video",
+                                                    "--no-terminal",
+                                                    fb_path,
+                                                ],
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         else:
                                             subprocess.Popen(
                                                 [bin_path, "-q", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         break
                                     except Exception:
@@ -3417,10 +3508,14 @@ class MainWindow(QWidget):
                 self._send_alert_telegram(pair, alert, price)
             elif "Market Buy" in legacy_action or "Limited Buy" in legacy_action:
                 lp = float(alert.get("order_price", price))
-                self._execute_alert_order(pair, "buy", lp, float(alert.get("order_qty", 0)))
+                self._execute_alert_order(
+                    pair, "buy", lp, float(alert.get("order_qty", 0))
+                )
             elif "Market Sell" in legacy_action or "Limited Sell" in legacy_action:
                 lp = float(alert.get("order_price", price))
-                self._execute_alert_order(pair, "sell", lp, float(alert.get("order_qty", 0)))
+                self._execute_alert_order(
+                    pair, "sell", lp, float(alert.get("order_qty", 0))
+                )
         self._set_status(f"Alert triggered: {name or pair}")
 
     def _execute_alert_order(self, pair: str, side: str, price: float, qty_usdt: float):
@@ -3442,14 +3537,18 @@ class MainWindow(QWidget):
         ts = int(time.time() * 1000)
         try:
             if side == "buy" and not engine.in_position:
-                result = engine._execute_order("buy_signal", price, ts, force=True, override_amount=qty_usdt)
+                result = engine._execute_order(
+                    "buy_signal", price, ts, force=True, override_amount=qty_usdt
+                )
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
                     self._set_status(f"Alert BUY executed: {pair} @ {price:.6f}")
                 elif result and result.get("action") == "skipped":
                     self._set_status(f"Alert BUY skipped: {result.get('note', '')}")
             elif side == "sell" and engine.in_position:
-                result = engine._execute_order("sell_signal", price, ts, force=True, override_amount=qty_usdt)
+                result = engine._execute_order(
+                    "sell_signal", price, ts, force=True, override_amount=qty_usdt
+                )
                 if result and result.get("trade"):
                     self._on_trade_done(pair, result)
                     self._set_status(f"Alert SELL executed: {pair} @ {price:.6f}")
@@ -3466,15 +3565,21 @@ class MainWindow(QWidget):
     def _send_alert_telegram(pair: str, alert: dict, price: float):
         """Send a Telegram message for a triggered alert."""
         from spotbot.ui.alert_dialog import load_telegram_config
+
         config = load_telegram_config()
         token = config.get("bot_token", "")
         chat_id = config.get("chat_id", "")
         if not token or not chat_id:
             return
-        msg = alert.get("telegram_msg", "") or f"Alert: {pair} {alert.get('operator')} {alert.get('value1')} @ {price}"
+        msg = (
+            alert.get("telegram_msg", "")
+            or f"Alert: {pair} {alert.get('operator')} {alert.get('value1')} @ {price}"
+        )
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = json.dumps({"chat_id": chat_id, "text": msg}).encode()
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}
+        )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 pass
