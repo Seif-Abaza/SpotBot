@@ -55,10 +55,20 @@ from spotbot.constants import (
     CCXT_AVAILABLE,
     CHART_CDN_URL,
     CONFIG_DIR,
+    FLI_ADX_LEN,
+    FLI_ADX_LEVEL,
     FLI_ATR_PERIOD,
     FLI_BB_DEV,
     FLI_BB_PERIOD,
+    FLI_CCI_BUFFER,
+    FLI_CCI_LEN,
+    FLI_CCI_LEVEL,
+    FLI_MIN_SCORE,
+    FLI_OBV_SMA_LEN,
+    FLI_USE_ADX,
     FLI_USE_ATR,
+    FLI_USE_CCI,
+    FLI_USE_OBV,
     FLOAT_EPS,
     NUMPY_AVAILABLE,
     PANDAS_AVAILABLE,
@@ -214,6 +224,16 @@ class MainWindow(QWidget):
             "bb_dev": FLI_BB_DEV,
             "use_atr": FLI_USE_ATR,
             "atr_period": FLI_ATR_PERIOD,
+            "use_cci": FLI_USE_CCI,
+            "cci_len": FLI_CCI_LEN,
+            "cci_level": FLI_CCI_LEVEL,
+            "cci_buffer": FLI_CCI_BUFFER,
+            "use_adx": FLI_USE_ADX,
+            "adx_len": FLI_ADX_LEN,
+            "adx_level": FLI_ADX_LEVEL,
+            "use_obv": FLI_USE_OBV,
+            "obv_sma_len": FLI_OBV_SMA_LEN,
+            "min_score": FLI_MIN_SCORE,
         }
 
         self._load_exchanges()
@@ -898,15 +918,10 @@ class MainWindow(QWidget):
         """Update the live FLI params and trigger a re-computation
         for all open tabs so the user sees the effect immediately."""
         self._fli_params = new_params
-        src = new_params.get('signal_source', 'fli').upper()
-        bb_p = new_params.get('bb_period', 19)
-        bb_d = new_params.get('bb_dev', 0.6)
-        atr_p = new_params.get('atr_period', 9)
         self._set_status(
             f"⚙️ Params updated: Signal={new_params.get('signal_source', 'fli').upper()}, "
             f"BB:{new_params['bb_period']}/{new_params['bb_dev']:.1f}, "
-            f"ATR:{new_params['atr_period']}, CCI:{new_params['cci_len']}, "
-            f"ADX:{new_params['adx_len']}, OBV:{new_params['obv_sma_len']}, "
+            f"ATR:{new_params['atr_period']}"
             f"MinScore:{new_params['min_score']}"
         )
 
@@ -2124,13 +2139,22 @@ class MainWindow(QWidget):
                 signal_pts.append({"time": t2, "value": float(v), "color": color})
             if signal_pts:
                 parts.append("setFliSignalLine(" + _json.dumps(signal_pts) + ")")
+        # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
         fli_trend_val = fli_data.get("fli_trend", 0) or 0
-        score_val = (fli_data.get("score_buy", 0) or 0) if fli_trend_val > 0 else (fli_data.get("score_sell", 0) or 0)
+        score_val = (
+            (fli_data.get("score_buy", 0) or 0)
+            if fli_trend_val > 0
+            else (fli_data.get("score_sell", 0) or 0)
+        )
         bbu_val = fli_data.get("bb_upper_val", 0) or 0
         bbl_val = fli_data.get("bb_lower_val", 0) or 0
         parts.append(
             "updateUIState("
             f"{int(fli_trend_val)},"
+            f"{fli_data.get('cci', 0) or 0},"
+            f"{fli_data.get('adx', 0) or 0},"
+            f"0,"
+            f"{int(score_val)},"
             f"{bbu_val},"
             f"{bbl_val},"
             f"'{fli_data.get('signal', 'WAIT')}'"
@@ -3351,20 +3375,24 @@ class MainWindow(QWidget):
                         parts.append(f"Price {op} {v1}")
                 popup_msg = " | ".join(parts) + f"\n{pair} @ {price:.6g}"
             QMessageBox.information(self, popup_title, popup_msg)
-        # Play sound via TradeNotifier
+        # Play sound
         play_sound = actions.get("sound", False)
+        sound_path = actions.get("sound_path", "")
         if play_sound:
             try:
                 import subprocess
                 import sys
+
                 if sys.platform == "win32":
                     import winsound
+
                     if sound_path and os.path.exists(sound_path):
                         winsound.PlaySound(sound_path, winsound.SND_FILENAME)
                     else:
                         winsound.Beep(2000, 300)
                 else:
                     import shutil
+
                     played = False
                     # Try the user-specified sound file first
                     if sound_path and os.path.exists(sound_path):
@@ -3375,18 +3403,33 @@ class MainWindow(QWidget):
                             try:
                                 if player == "ffplay":
                                     subprocess.Popen(
-                                        [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        [
+                                            bin_path,
+                                            "-nodisp",
+                                            "-autoexit",
+                                            "-loglevel",
+                                            "quiet",
+                                            sound_path,
+                                        ],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 elif player == "mpv":
                                     subprocess.Popen(
-                                        [bin_path, "--no-video", "--no-terminal", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        [
+                                            bin_path,
+                                            "--no-video",
+                                            "--no-terminal",
+                                            sound_path,
+                                        ],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 else:
                                     subprocess.Popen(
                                         [bin_path, "-q", sound_path],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
                                     )
                                 played = True
                                 break
@@ -3394,7 +3437,14 @@ class MainWindow(QWidget):
                                 continue
                     # Fallback: system bell sound
                     if not played:
-                        sfx_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "SFX")
+                        sfx_dir = os.path.join(
+                            os.path.dirname(
+                                os.path.dirname(
+                                    os.path.dirname(os.path.abspath(__file__))
+                                )
+                            ),
+                            "SFX",
+                        )
                         fallback_candidates = [
                             os.path.join(sfx_dir, "notif.wav"),
                             "/usr/share/sounds/freedesktop/stereo/bell.oga",
@@ -3408,18 +3458,33 @@ class MainWindow(QWidget):
                                     try:
                                         if player == "ffplay":
                                             subprocess.Popen(
-                                                [bin_path, "-nodisp", "-autoexit", "-loglevel", "quiet", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                [
+                                                    bin_path,
+                                                    "-nodisp",
+                                                    "-autoexit",
+                                                    "-loglevel",
+                                                    "quiet",
+                                                    fb_path,
+                                                ],
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         elif player == "mpv":
                                             subprocess.Popen(
-                                                [bin_path, "--no-video", "--no-terminal", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                [
+                                                    bin_path,
+                                                    "--no-video",
+                                                    "--no-terminal",
+                                                    fb_path,
+                                                ],
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         else:
                                             subprocess.Popen(
                                                 [bin_path, "-q", fb_path],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL,
                                             )
                                         break
                                     except Exception:

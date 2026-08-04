@@ -676,26 +676,14 @@ class TradingEngine:
     def _has_base_coin(self) -> tuple[bool, float]:
         """Check if the wallet already holds the base coin of self.pair.
         Returns (has_coin, free_qty).
-        Uses a dust threshold to ignore tiny residuals after a full sell.
-        Also honours a post-sell grace period where the exchange balance
-        may not have settled yet — during this window we trust the
-        engine's own in_position flag instead of the exchange wallet."""
-        # After a recent sell, the exchange balance API may still report
-        # the old (pre-sell) quantity for a few seconds.  Trust our own
-        # state: if we just sold, we know we're flat.
-        if self._last_sell_price > 0 and not self.in_position:
-            return (False, 0.0)
+        Uses FLOAT_EPS threshold to ignore dust amounts after a full sell."""
         if not self.pair or not self.exch_mgr:
             return (False, 0.0)
         try:
             base = self.pair.split("/")[0]
             free_qty = float(self.exch_mgr.fetch_wallet_coin(base))
-            # Dust threshold: ignore amounts smaller than 1 USD equivalent.
-            # After a full sell the exchange may leave a tiny residual
-            # (e.g. 1e-8 ARB ≈ $0.00000001) which must NOT block a new buy.
-            # We use 1e-6 as a safe dust cutoff — well above FLOAT_EPS
-            # but far below any meaningful trading quantity.
-            DUST_THRESHOLD = 1e-6
-            return (free_qty > DUST_THRESHOLD, free_qty)
+            # Ignore dust — after a full sell the exchange may leave
+            # a tiny residual (e.g. 1e-8) which should NOT block a new buy.
+            return (free_qty > FLOAT_EPS, free_qty)
         except Exception:
             return (False, 0.0)

@@ -35,18 +35,8 @@ if IS_WINDOWS:
 else:
     WINOTIFY_AVAILABLE = False
 
-try:
-    from PySide6.QtWidgets import QSystemTrayIcon, QMenu
-    from PySide6.QtGui import QAction, QIcon
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
-        from PyQt6.QtGui import QAction, QIcon
-    except ImportError:
-        QSystemTrayIcon = None
-        QMenu = None
-        QAction = None
-        QIcon = None
+from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+from PyQt6.QtGui import QAction, QIcon
 
 
 try:
@@ -98,7 +88,7 @@ class TradeNotifier:
     }
 
     def __init__(
-        self, enabled: bool = True, tray_icon=None
+        self, enabled: bool = True, tray_icon: "QSystemTrayIcon | None" = None
     ) -> None:
         self.enabled = enabled
 
@@ -121,12 +111,10 @@ class TradeNotifier:
             f"[NOTIFIER] Initialized — backend: {backend} | sounds: {sounds_ok}/{len(self.SOUNDS)}"
         )
 
-    def _ensure_qt_tray(self):
-        if QSystemTrayIcon is None:
-            return None
+    def _ensure_qt_tray(self) -> QSystemTrayIcon:
         if self._qt_tray is None:
             self._qt_tray = QSystemTrayIcon()
-            if self.icon_path and QIcon:
+            if self.icon_path:
                 self._qt_tray.setIcon(QIcon(self.icon_path))
             self._qt_tray.show()
         return self._qt_tray
@@ -204,10 +192,9 @@ class TradeNotifier:
             toast.show()
         else:
             tray = self._ensure_qt_tray()
-            if tray is not None and QSystemTrayIcon is not None:
-                tray.showMessage(
-                    title, message, QSystemTrayIcon.MessageIcon.Information, 5000
-                )
+            tray.showMessage(
+                title, message, QSystemTrayIcon.MessageIcon.Information, 5000
+            )
 
     # ── Public API ──────────────────────────────────────────────
 

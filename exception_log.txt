@@ -18,3 +18,5 @@
 2026-08-04T00:59:12.506197 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
 2026-08-04T00:59:32.614355 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
 2026-08-04T01:13:40.183595 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'min_score'
+2026-08-04T13:10:48.726094 [spotbot/ui/main_window.py:908] UNHANDLED KeyError: 'cci_len'
+2026-08-04T13:23:22.866994 [spotbot/ui/main_window.py:924] UNHANDLED KeyError: 'cci_len'
