@@ -39,10 +39,6 @@ from spotbot.constants import (
     FLI_USE_CCI,
     FLI_USE_OBV,
     FLOAT_EPS,
-<<<<<<< HEAD
-=======
-    FLI_BB_PERIOD, FLI_BB_DEV, FLI_USE_ATR, FLI_ATR_PERIOD,
->>>>>>> 1dee732334983953cdd7b281bc58b8f62e7bf483
 )
 
 
