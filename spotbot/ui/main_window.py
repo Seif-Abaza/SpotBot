@@ -1104,6 +1104,7 @@ class MainWindow(QWidget):
             base_price=self._sim_base_price,
             timeframe=tf,
             existing_candles=existing_candles,
+            balance=self._portfolio_balance if self._portfolio_balance > 0 else 10_000.0,
             parent=self,
         )
         ms = self._sim_interval_from_slider(self.sliderSimSpeed.value())

@@ -62,10 +62,10 @@ class ChartRenderer:
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
 body{{background:#0b0e11;overflow:hidden;height:100vh;display:flex;flex-direction:column;}}
-#ticker{{background:#0b0e11;border-bottom:1px solid #1e2329;padding:8px 12px;display:flex;align-items:center;gap:16px;flex-shrink:0;}}  # noqa: E501  # noqa: E501
+#ticker{{background:#0b0e11;border-bottom:1px solid #1e2329;padding:8px 12px;display:flex;align-items:center;gap:16px;flex-shrink:0;}}
 #tickerPair{{font-size:15px;font-weight:700;color:#eaecef;}}
 #tickerPrice{{font-size:14px;font-weight:700;color:{ticker_color};font-family:Consolas,monospace;}}
-#tickerChange{{font-size:13px;font-weight:700;color:{ticker_color};font-family:Consolas,monospace;padding:2px 8px;border-radius:4px;background:#1e2329;}}  # noqa: E501  # noqa: E501
+#tickerChange{{font-size:13px;font-weight:700;color:{ticker_color};font-family:Consolas,monospace;padding:2px 8px;border-radius:4px;background:#1e2329;}}
 #tickerInfo{{font-size:11px;color:#848e9c;font-family:Consolas,monospace;}}
 #chartArea{{flex:1;display:flex;flex-direction:column;min-height:0;}}
 #main-chart{{flex:3;min-height:0;}}
@@ -232,7 +232,7 @@ chart.timeScale().fitContent();
             if bb.get(key):
                 data = ChartRenderer._series_js(candles, bb[key])
                 overlays.append(
-                    f"const bb_{key}=chart.addLineSeries({{color:'{clr}',lineWidth:1,priceLineVisible:false,lastValueVisible:false}});bb_{key}.setData({data});"  # noqa: E501  # noqa: E501
+                    f"const bb_{key}=chart.addLineSeries({{color:'{clr}',lineWidth:1,priceLineVisible:false,lastValueVisible:false}});bb_{key}.setData({data});"
                 )
 
         # EMAs
@@ -241,7 +241,7 @@ chart.timeScale().fitContent();
             if d:
                 data = ChartRenderer._series_js(candles, d)
                 overlays.append(
-                    f"const {ek}=chart.addLineSeries({{color:'{clr}',lineWidth:1,priceLineVisible:false,lastValueVisible:true}});{ek}.setData({data});"  # noqa: E501  # noqa: E501
+                    f"const {ek}=chart.addLineSeries({{color:'{clr}',lineWidth:1,priceLineVisible:false,lastValueVisible:true}});{ek}.setData({data});"
                 )
 
         overlay_js = "\n".join(overlays)
@@ -376,11 +376,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
   border:1px solid #2b3139;min-width:210px;
   box-shadow:0 8px 24px rgba(0,0,0,0.45);
 }
-#infoPanel .panelTitle{font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase}  # noqa: E501  # noqa: E501
+#infoPanel .panelTitle{font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase}
 #infoPanel .lbl{font-size:10px;color:#848e9c}
 #infoPanel .val{font-size:11px;color:#eaecef;font-weight:700}
 #infoPanel .row{display:flex;justify-content:space-between;gap:14px;margin-top:3px}
-#infoPanel .signal{margin-top:8px;font-size:12px;font-weight:800;text-align:center;padding:5px 0;border-radius:5px;letter-spacing:.3px}  # noqa: E501  # noqa: E501
+#infoPanel .signal{margin-top:8px;font-size:12px;font-weight:800;text-align:center;padding:5px 0;border-radius:5px;letter-spacing:.3px}
 #infoPanel .buy{color:#0ecb81;background:rgba(14,203,129,0.14)}
 #infoPanel .sell{color:#f6465d;background:rgba(246,70,93,0.14)}
 #infoPanel .none{color:#848e9c;background:rgba(132,142,156,0.10)}
@@ -392,7 +392,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
   border:1px solid #2b3139;min-width:210px;
   box-shadow:0 8px 24px rgba(0,0,0,0.45);
 }
-#tradePanel .panelTitle{font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase}  # noqa: E501  # noqa: E501
+#tradePanel .panelTitle{font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase}
 #tradePanel .lbl{font-size:10px;color:#848e9c}
 #tradePanel .val{font-size:11px;color:#eaecef;font-weight:700}
 #tradePanel .row{display:flex;justify-content:space-between;gap:14px;margin-top:3px}
@@ -447,13 +447,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
         <div class="row"><span class="lbl">BB Lower:</span><span class="val" id="iBBL">--</span></div>
         <div class="signal none" id="iSignal">-- WAIT</div>
       </div>
-      <div id="walletBuyPanel" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:10;  # noqa: E501  # noqa: E501
+      <div id="walletBuyPanel" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:10;
         font-family:'Consolas','SF Mono',monospace;
         background:rgba(13,16,20,0.92);backdrop-filter:blur(6px);
         padding:10px 12px;border-radius:8px;
         border:1px solid #2b3139;min-width:220px;max-width:320px;
         box-shadow:0 8px 24px rgba(0,0,0,0.45);">
-        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#e040fb;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Wallet Purchase History</div>  # noqa: E501  # noqa: E501
+        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#e040fb;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Wallet Purchase History</div>
         <div id="walletBuyList" style="max-height:120px;overflow-y:auto;font-size:10px;color:#eaecef;"></div>
         <div style="display:flex;justify-content:space-between;gap:14px;margin-top:6px">
           <span style="font-size:10px;color:#848e9c">Total Buys:</span>
@@ -474,15 +474,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0e11;font-family:
         padding:10px 12px;border-radius:8px;
         border:1px solid #2b3139;min-width:185px;max-width:240px;
         box-shadow:0 8px 24px rgba(0,0,0,0.45);">
-        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Backtest</div>  # noqa: E501  # noqa: E501
-        <div id="btDurationRow" style="display:none;margin-top:3px"><span style="font-size:10px;color:#f0a500">Duration:</span><span style="font-size:11px;color:#f0a500;font-weight:700" id="btDuration">--</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Trades:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btTrades">0</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Win Rate:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btWinRate">0%</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Wins:</span><span style="font-size:11px;font-weight:700" id="btWins">0</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Losses:</span><span style="font-size:11px;font-weight:700" id="btLosses">0</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Net P&L:</span><span style="font-size:11px;font-weight:700" id="btPnl">0.00%</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Equity Final:</span><span style="font-size:11px;color:#2962ff;font-weight:700" id="btEquityFinal">$0.00</span></div>  # noqa: E501  # noqa: E501
-        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Equity Peak:</span><span style="font-size:11px;color:#0ecb81;font-weight:700" id="btEquityPeak">$0.00</span></div>  # noqa: E501  # noqa: E501
+        <div class="panelTitle" style="font-size:10px;font-weight:700;color:#5b6472;letter-spacing:.6px;margin-bottom:6px;text-transform:uppercase">Backtest</div>
+        <div id="btDurationRow" style="display:none;margin-top:3px"><span style="font-size:10px;color:#f0a500">Duration:</span><span style="font-size:11px;color:#f0a500;font-weight:700" id="btDuration">--</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Trades:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btTrades">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Win Rate:</span><span style="font-size:11px;color:#eaecef;font-weight:700" id="btWinRate">0%</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Wins:</span><span style="font-size:11px;font-weight:700" id="btWins">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Losses:</span><span style="font-size:11px;font-weight:700" id="btLosses">0</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Net P&L:</span><span style="font-size:11px;font-weight:700" id="btPnl">0.00%</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Equity Final:</span><span style="font-size:11px;color:#2962ff;font-weight:700" id="btEquityFinal">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between;gap:14px;margin-top:3px"><span style="font-size:10px;color:#848e9c">Equity Peak:</span><span style="font-size:11px;color:#0ecb81;font-weight:700" id="btEquityPeak">$0.00</span></div>
       </div>
       <div class="badge wait" id="badge"><span id="badgeText">SCANNING...</span></div>
     </div>
@@ -601,7 +601,7 @@ function setFliCandles(d){fliCandles.setData(d);if(d.length)refreshLegend(d[d.le
 function setFliSignalLine(d){fliSignalLine.setData(d);}
 function setFliBBUpper(d){fliBBUpper.setData(d);}
 function setFliBBLower(d){fliBBLower.setData(d);}
-function updateFliCandle(c){fliCandles.update(c);_lastCandle=c;refreshLegend(c);if(_autoScroll)fliChart.timeScale().scrollToRealTime();}  # noqa: E501  # noqa: E501
+function updateFliCandle(c){fliCandles.update(c);_lastCandle=c;refreshLegend(c);if(_autoScroll)fliChart.timeScale().scrollToRealTime();}
 
 function setMarkers(markers){
   _allMarkers=markers.slice();
@@ -719,7 +719,7 @@ function updateWalletBuyPanel(buys, totalQty, avgPrice){
   var html='';
   for(var i=0;i<buys.length;i++){
     var b=buys[i];
-    html+='<div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;padding:2px 0;border-bottom:1px solid rgba(43,49,57,0.3)">';  # noqa: E501  # noqa: E501
+    html+='<div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;padding:2px 0;border-bottom:1px solid rgba(43,49,57,0.3)">';
     html+='<span style="color:#848e9c">'+b.date+'</span>';
     html+='<span style="color:#e040fb;font-weight:600">@ '+b.price.toFixed(6)+'</span>';
     html+='<span style="color:#eaecef">x'+b.qty.toFixed(8)+'</span>';

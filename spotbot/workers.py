@@ -654,12 +654,14 @@ class SimulationWorker(QThread):
     sim_error = Signal(str)
 
     def __init__(self, pair: str, base_price: float, timeframe: str,
-                 existing_candles: list | None = None, parent=None):
+                 existing_candles: list | None = None, balance: float = 10_000.0,
+                 parent=None):
         super().__init__(parent)
         self.pair = pair
         self.base_price = base_price
         self.timeframe = timeframe
         self.existing_candles = existing_candles or []
+        self.balance = balance
         self._interval_ms = 500        # default: new candle every 500 ms
         self._running = True
         self._paused = False
@@ -687,7 +689,7 @@ class SimulationWorker(QThread):
             )
             sim.seed_from_candles(self.existing_candles)
             # Emit empty history — the chart already has the real candles
-            self.history_ready.emit(self.pair, [], 10_000.0)
+            self.history_ready.emit(self.pair, [], self.balance)
             self.sim_status.emit(
                 f"[Simulator] {self.pair}: seeded from {len(self.existing_candles)} real candles"
             )
@@ -699,7 +701,7 @@ class SimulationWorker(QThread):
             )
             try:
                 history = sim.generate_history(count=200)
-                self.history_ready.emit(self.pair, history, 10_000.0)
+                self.history_ready.emit(self.pair, history, self.balance)
                 self.sim_status.emit(
                     f"[Simulator] {self.pair}: {len(history)} history candles ready"
                 )
