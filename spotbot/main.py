@@ -5,7 +5,6 @@ import sys
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from spotbot.constants import TRADE_NOTIFIER_AVAILABLE
 from spotbot.exception_logger import excepthook
 from spotbot.styles import STYLE_QSS
 from spotbot.ui.main_window import MainWindow

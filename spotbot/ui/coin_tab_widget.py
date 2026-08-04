@@ -1,8 +1,7 @@
 """Closable tab widget that hosts CoinSession instances."""
 
-from PySide6.QtCore import Signal, Slot, QUrl, Qt, QTimer, QObject
+from PySide6.QtCore import Signal, Slot, QUrl, QTimer, QObject
 from PySide6.QtWidgets import (
-    QTabWidget,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -12,6 +11,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
+
+from spotbot.ui.coin_session import CoinSession
 
 
 class _ChartBridge(QObject):

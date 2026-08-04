@@ -14,11 +14,9 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
-    QWidget,
 )
 
 

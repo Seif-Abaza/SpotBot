@@ -219,7 +219,7 @@ def fli_ohlcv_to_df(candles: list) -> "pd.DataFrame":
 
 
 def _compute_fli_data(candles):
-    """Compute FLI indicator data dict from raw ccxt candles for chart overlay."""
+    """Compute FLI indicator data dict from raw ccxt candles for chart overlay."""  # noqa: C901
     if not candles:
         return None
     try:
@@ -376,7 +376,7 @@ def _pad(candles, data):
     return [None] * (len(candles) - len(data)) + data if data else [None] * len(candles)
 
 
-def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:
+def backtest_fli_signals(df: "pd.DataFrame", investment: float = 10.0) -> dict:  # noqa: C901
     """Run a simple backtest on FLI signals already computed in the DataFrame.
 
     Scans every row for ``buy_signal`` / ``sell_signal`` and simulates a

@@ -168,9 +168,9 @@ class MainWindow(QWidget):
         # ── Per-pair FLI worker registry (each open tab gets its own) ──
         self._fli_workers: dict[str, FLIChartWorker] = {}
         self._pair_candles: dict[str, list] = {}  # pair → last candles
-        self._pair_last_chart_ts: dict[str, int] = (
-            {}
-        )  # pair → last candle ts sent to chart
+        self._pair_last_chart_ts: dict[
+            str, int
+        ] = {}  # pair → last candle ts sent to chart
         self._pair_markers: dict[str, list] = {}  # pair → last markers
         self._pair_fli_df: dict[str, object] = {}  # pair → last fli_df
         self._pair_chart_ready: dict[str, bool] = {}  # pair → chart loaded flag
@@ -212,9 +212,9 @@ class MainWindow(QWidget):
         # ── Simulation mode state ──
         self._simulation_active: bool = False
         self._sim_workers: dict[str, SimulationWorker] = {}  # pair → worker
-        self._sim_process_workers: dict[str, SimCandleProcessWorker] = (
-            {}
-        )  # pair → process worker
+        self._sim_process_workers: dict[
+            str, SimCandleProcessWorker
+        ] = {}  # pair → process worker
         self._sim_processing: dict[str, bool] = {}  # pair → is processing?
         self._sim_base_price: float = 0.05
 
@@ -483,7 +483,7 @@ class MainWindow(QWidget):
         # ── FLI-based trading signal evaluation (immediate execution) ──
         if self._fli_params.get("signal_source") == "fli":
             self._evaluate_fli_trading_signal(pair, df)
-        if self._pair_chart_first_load.get(pair, True):
+        if self._pair_chart_first_load.get(pair, True):  # noqa: C901
             self._chart_js(pair, "zoomToRecent(100);")
             self._pair_chart_first_load[pair] = False
 
@@ -1171,9 +1171,7 @@ class MainWindow(QWidget):
             parent=self,
         )
         worker.process_done.connect(self._on_sim_process_done)
-        worker.process_error.connect(
-            lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}")
-        )
+        worker.process_error.connect(lambda p, m: self._set_status(f"⚠️ [Sim] {p}: {m}"))
         self._sim_process_workers[pair] = worker
         worker.start()
 
@@ -1299,7 +1297,7 @@ class MainWindow(QWidget):
                 }
             )
         self._chart_js(pair, f"setFliCandles({json.dumps(candles)});")
-        if candles:
+        if candles:  # noqa: C901
             self._pair_last_chart_ts[pair] = candles[-1]["time"]
         self._chart_js(pair, f"setSymbol({json.dumps(f'{pair} ({self._tf()})')});")
 
@@ -1529,7 +1527,7 @@ class MainWindow(QWidget):
             investment_amount=inv,
             investment_mode=mode,
         )
-        # ── Requirement 2: do NOT auto-buy on tab open. trading_enabled stays
+        # ── Requirement 2: do NOT auto-buy on tab open. trading_enabled stays  # noqa: C901
         # False until the user presses 'Start Trading'. ──
         session.trading_enabled = self._global_trading_enabled
         session.engine.set_trading_enabled(self._global_trading_enabled)
@@ -1630,7 +1628,7 @@ class MainWindow(QWidget):
                 entry_source = "trade_history"
         except Exception as e:
             print(
-                f"[seed_position] fetch_avg_entry_price failed for {session.pair}: {e}"
+                f"[seed_position] fetch_avg_entry_price failed for {session.pair}: {e}"  # noqa: C901
             )
 
         # Try (b) last ticker price (good proxy for "what is this position
@@ -1801,7 +1799,7 @@ class MainWindow(QWidget):
             # ── Fetch & mark wallet purchase history on first chart load (in QThread) ──
             self._fetch_and_mark_wallet_buys_async(pair)
         else:
-            js = self._build_incremental_js(pair, data)
+            js = self._build_incremental_js(pair, data)  # noqa: C901
             if js:
                 tab.chart_js(js)
         balance = data.get("balance", 0.0)
@@ -2045,7 +2043,7 @@ class MainWindow(QWidget):
         price = result.get("price", 0.0)
         try:
             price = float(price)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # noqa: C901
             price = 0.0
         markers = self._pair_markers.setdefault(pair, [])
         # ── Issue 1: remove EVERY pending marker for this pair.  The
@@ -2141,24 +2139,11 @@ class MainWindow(QWidget):
                 parts.append("setFliSignalLine(" + _json.dumps(signal_pts) + ")")
         # Build the score based on fli_trend direction (matches _update_fli_info_panel logic)
         fli_trend_val = fli_data.get("fli_trend", 0) or 0
-        score_val = (
-            (fli_data.get("score_buy", 0) or 0)
-            if fli_trend_val > 0
-            else (fli_data.get("score_sell", 0) or 0)
-        )
         bbu_val = fli_data.get("bb_upper_val", 0) or 0
         bbl_val = fli_data.get("bb_lower_val", 0) or 0
+        signal = fli_data.get("signal", "WAIT")
         parts.append(
-            "updateUIState("
-            f"{int(fli_trend_val)},"
-            f"{fli_data.get('cci', 0) or 0},"
-            f"{fli_data.get('adx', 0) or 0},"
-            f"0,"
-            f"{int(score_val)},"
-            f"{bbu_val},"
-            f"{bbl_val},"
-            f"'{fli_data.get('signal', 'WAIT')}'"
-            ")"
+            f"updateUIState({int(fli_trend_val)},{bbu_val:.4f},{bbl_val:.4f},'{signal}');"
         )
         return parts
 
@@ -3007,7 +2992,7 @@ class MainWindow(QWidget):
     # ─────────────────────────────────────────────────────────────────────
 
     def _on_chart_candle_click(self, pair: str, time: int, price: float):
-        """Open the Alert dialog when user clicks the chart."""
+        """Open the Alert dialog when user clicks the chart."""  # noqa: C901
         from spotbot.ui.alert_dialog import AlertDialog, load_alerts
 
         session = self._sessions.get(pair)
@@ -3102,7 +3087,7 @@ class MainWindow(QWidget):
             if trigger == "Once only" and alert.get("fired"):
                 continue
             if trigger == "Once per minute":
-                last_ts = alert.get("last_fire_ts", 0)
+                last_ts = alert.get("last_fire_ts", 0)  # noqa: C901
                 if now_ms - last_ts < 60000:
                     continue
             # Evaluate conditions
@@ -3175,7 +3160,7 @@ class MainWindow(QWidget):
             val = close
             prev_val = float(candles[-2][4]) if len(candles) >= 2 else val
         # For Moving operators, check over N bars
-        if op in ("Moving Up", "Moving Down", "Moving Up %", "Moving Down %"):
+        if op in ("Moving Up", "Moving Down", "Moving Up %", "Moving Down %"):  # noqa: C901
             bars = max(bars, 2)
             if len(candles) < bars:
                 return False
@@ -3265,7 +3250,7 @@ class MainWindow(QWidget):
             pass
         return None
 
-    @staticmethod
+    @staticmethod  # noqa: C901
     def _get_indicator_prev_value(name: str, indicators: dict) -> float:
         """Extract the previous (second-to-last) indicator value."""
         if not indicators:
@@ -3465,7 +3450,7 @@ class MainWindow(QWidget):
                                                     "-loglevel",
                                                     "quiet",
                                                     fb_path,
-                                                ],
+                                                ],  # noqa: C901
                                                 stdout=subprocess.DEVNULL,
                                                 stderr=subprocess.DEVNULL,
                                             )

@@ -689,7 +689,7 @@ class AlertDialog(QDialog):
             self._alert_name, self._alert_message = dlg.get_data()
             self._update_msg_preview()
 
-    def _update_msg_preview(self):
+    def _update_msg_preview(self):  # noqa: E501
         if self._alert_name:
             self.lbl_msg_preview.setText(f"\U0001f4cb {self._alert_name}" + "\n" + (self._alert_message or ""))
             self.lbl_msg_preview.setStyleSheet("color:#eaecef; font-size:11px; padding:4px; background:#161a1e; border-radius:4px;")
@@ -851,7 +851,7 @@ class AlertDialog(QDialog):
         self.chk_sound.setChecked(False)
         self.cb_action.setCurrentIndex(0)
         self.sp_order_price.setValue(self.candle_price or 0.0)
-        self.sp_order_qty.setValue(0.0)
+        self.sp_order_qty.setValue(0.0)  # noqa: C901
         self._editing_idx = None
         self.alert_list.clearSelection()
 

@@ -14,15 +14,14 @@ Covers:
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
-import math
+from unittest.mock import MagicMock
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # Mock PySide6 for headless test environments
-for mod in ('PySide6', 'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'):
+for mod in ("PySide6", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"):
     if mod not in sys.modules:
         sys.modules[mod] = MagicMock()
 
@@ -31,38 +30,51 @@ for mod in ('PySide6', 'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'):
 # 1. trading.py — _has_base_coin dust threshold
 # ============================================================
 class TestHasBaseCoinDustThreshold(unittest.TestCase):
-    """Verify that _has_base_coin ignores floating-point noise."""
+    """Verify that _has_base_coin ignores floating-point noise and dust."""
 
     def test_zero_balance_returns_false(self):
-        from spotbot.constants import FLOAT_EPS
+        from spotbot.constants import DUST_THRESHOLD
+
         free_qty = 0.0
-        has_coin = free_qty > FLOAT_EPS
+        has_coin = free_qty > DUST_THRESHOLD
         self.assertFalse(has_coin)
 
     def test_sub_eps_noise_returns_false(self):
-        """Value below FLOAT_EPS (1e-12) should return False."""
-        from spotbot.constants import FLOAT_EPS
+        """Value below DUST_THRESHOLD (1e-6) should return False."""
+        from spotbot.constants import DUST_THRESHOLD
+
         free_qty = 1e-13
-        has_coin = free_qty > FLOAT_EPS
+        has_coin = free_qty > DUST_THRESHOLD
+        self.assertFalse(has_coin)
+
+    def test_dust_residual_returns_false(self):
+        """A 1e-8 residual after a full sell should NOT block a new buy."""
+        from spotbot.constants import DUST_THRESHOLD
+
+        free_qty = 1e-8
+        has_coin = free_qty > DUST_THRESHOLD
         self.assertFalse(has_coin)
 
     def test_at_eps_returns_false(self):
-        """Exactly at FLOAT_EPS should return False (strict >)."""
-        from spotbot.constants import FLOAT_EPS
-        free_qty = FLOAT_EPS
-        has_coin = free_qty > FLOAT_EPS
+        """Exactly at DUST_THRESHOLD should return False (strict >)."""
+        from spotbot.constants import DUST_THRESHOLD
+
+        free_qty = DUST_THRESHOLD
+        has_coin = free_qty > DUST_THRESHOLD
         self.assertFalse(has_coin)
 
     def test_meaningful_balance_returns_true(self):
-        from spotbot.constants import FLOAT_EPS
+        from spotbot.constants import DUST_THRESHOLD
+
         free_qty = 1.0
-        has_coin = free_qty > FLOAT_EPS
+        has_coin = free_qty > DUST_THRESHOLD
         self.assertTrue(has_coin)
 
     def test_float_eps_value_is_tiny(self):
-        from spotbot.constants import FLOAT_EPS
-        self.assertGreater(FLOAT_EPS, 0)
-        self.assertLessEqual(FLOAT_EPS, 1e-10)
+        from spotbot.constants import DUST_THRESHOLD
+
+        self.assertGreater(DUST_THRESHOLD, 0)
+        self.assertLessEqual(DUST_THRESHOLD, 1e-5)
 
 
 # ============================================================
@@ -115,27 +127,27 @@ class TestExecuteOrderForce(unittest.TestCase):
     def test_normal_buy_skipped_when_trading_disabled(self):
         force = False
         trading_enabled = False
-        skipped = (not force and not trading_enabled)
+        skipped = not force and not trading_enabled
         self.assertTrue(skipped)
 
     def test_force_buy_bypasses_trading_disabled(self):
         force = True
         trading_enabled = False
-        skipped = (not force and not trading_enabled)
+        skipped = not force and not trading_enabled
         self.assertFalse(skipped)
 
     def test_normal_sell_blocked_below_entry(self):
         force = False
         price = 90.0
         entry_price = 100.0
-        held = (not force and price <= entry_price)
+        held = not force and price <= entry_price
         self.assertTrue(held)
 
     def test_force_sell_bypasses_entry_check(self):
         force = True
         price = 90.0
         entry_price = 100.0
-        held = (not force and price <= entry_price)
+        held = not force and price <= entry_price
         self.assertFalse(held)
 
     def test_override_amount_used(self):
@@ -189,19 +201,25 @@ class TestPureFLIIndicators(unittest.TestCase):
         n = 20
         np.random.seed(99)
         prices = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
-        df = pd.DataFrame({
-            "open": prices - 0.1,
-            "high": prices + 0.5,
-            "low": prices - 0.5,
-            "close": prices,
-            "volume": np.full(n, 1000.0),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices - 0.1,
+                "high": prices + 0.5,
+                "low": prices - 0.5,
+                "close": prices,
+                "volume": np.full(n, 1000.0),
+            }
+        )
         result = fli_compute_all_indicators(df, {})
         pd.testing.assert_series_equal(
-            result["buy_signal"], result["raw_buy"], check_names=False,
+            result["buy_signal"],
+            result["raw_buy"],
+            check_names=False,
         )
         pd.testing.assert_series_equal(
-            result["sell_signal"], result["raw_sell"], check_names=False,
+            result["sell_signal"],
+            result["raw_sell"],
+            check_names=False,
         )
 
     def test_legacy_columns_are_zero(self):
@@ -213,13 +231,15 @@ class TestPureFLIIndicators(unittest.TestCase):
         n = 20
         np.random.seed(123)
         prices = 100.0 + np.cumsum(np.random.randn(n) * 0.3)
-        df = pd.DataFrame({
-            "open": prices - 0.05,
-            "high": prices + 0.5,
-            "low": prices - 0.5,
-            "close": prices,
-            "volume": np.full(n, 500.0),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices - 0.05,
+                "high": prices + 0.5,
+                "low": prices - 0.5,
+                "close": prices,
+                "volume": np.full(n, 500.0),
+            }
+        )
         result = fli_compute_all_indicators(df, {})
         self.assertTrue((result["cci"] == 0.0).all())
         self.assertTrue((result["adx"] == 0.0).all())
@@ -233,16 +253,24 @@ class TestPureFLIIndicators(unittest.TestCase):
         n = 20
         np.random.seed(42)
         prices = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
-        df = pd.DataFrame({
-            "open": prices - 0.1,
-            "high": prices + 1.0,
-            "low": prices - 1.0,
-            "close": prices,
-            "volume": np.full(n, 1000.0),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices - 0.1,
+                "high": prices + 1.0,
+                "low": prices - 1.0,
+                "close": prices,
+                "volume": np.full(n, 1000.0),
+            }
+        )
         result = fli_compute_all_indicators(df, {})
-        for col in ("buy_signal", "sell_signal", "itrend", "trendline",
-                   "bb_upper", "bb_lower"):
+        for col in (
+            "buy_signal",
+            "sell_signal",
+            "itrend",
+            "trendline",
+            "bb_upper",
+            "bb_lower",
+        ):
             self.assertIn(col, result.columns)
 
     def test_short_df_returns_unchanged(self):
@@ -262,33 +290,43 @@ class TestChartRendererPriceFormat(unittest.TestCase):
 
     def test_no_price_format_in_series_constructors(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
-        lines = _FLI_HTML_TEMPLATE.split('\n')
+
+        lines = _FLI_HTML_TEMPLATE.split("\n")
         for line in lines:
-            if 'function _priceFmt' in line or '_priceFmt(prices' in line:
+            if "function _priceFmt" in line or "_priceFmt(prices" in line:
                 continue
-            if 'addCandlestickSeries' in line or 'addLineSeries' in line:
-                self.assertNotIn('priceFormat:', line,
-                    f"priceFormat found in series constructor: {line}")
+            if "addCandlestickSeries" in line or "addLineSeries" in line:
+                self.assertNotIn(
+                    "priceFormat:",
+                    line,
+                    f"priceFormat found in series constructor: {line}",
+                )
 
     def test_price_fmt_function_still_exists(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
-        self.assertIn('function _priceFmt(', _FLI_HTML_TEMPLATE)
+
+        self.assertIn("function _priceFmt(", _FLI_HTML_TEMPLATE)
 
     def test_updateUIState_signature_changed(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
-        self.assertIn('function updateUIState(fliTrend,bbUpper,bbLower,signal)',
-                      _FLI_HTML_TEMPLATE)
+
+        self.assertIn(
+            "function updateUIState(fliTrend,bbUpper,bbLower,signal)",
+            _FLI_HTML_TEMPLATE,
+        )
 
     def test_no_cci_adx_obv_dom_elements(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
-        self.assertNotIn('iCCI', _FLI_HTML_TEMPLATE)
-        self.assertNotIn('iADX', _FLI_HTML_TEMPLATE)
-        self.assertNotIn('iOBV', _FLI_HTML_TEMPLATE)
-        self.assertNotIn('iScore', _FLI_HTML_TEMPLATE)
+
+        self.assertNotIn("iCCI", _FLI_HTML_TEMPLATE)
+        self.assertNotIn("iADX", _FLI_HTML_TEMPLATE)
+        self.assertNotIn("iOBV", _FLI_HTML_TEMPLATE)
+        self.assertNotIn("iScore", _FLI_HTML_TEMPLATE)
 
     def test_fli_indicator_panel_title(self):
         from spotbot.chart_renderer import _FLI_HTML_TEMPLATE
-        self.assertIn('FLI Indicator', _FLI_HTML_TEMPLATE)
+
+        self.assertIn("FLI Indicator", _FLI_HTML_TEMPLATE)
 
 
 # ============================================================
@@ -299,14 +337,25 @@ class TestIndicatorParamsDialogSimplified(unittest.TestCase):
 
     def test_defaults_no_cci_adx_obv(self):
         from spotbot.ui.indicator_params_dialog import DEFAULTS
-        invalid_keys = {"use_cci", "cci_len", "cci_level", "cci_buffer",
-                       "use_adx", "adx_len", "adx_level",
-                       "use_obv", "obv_sma_len", "min_score"}
+
+        invalid_keys = {
+            "use_cci",
+            "cci_len",
+            "cci_level",
+            "cci_buffer",
+            "use_adx",
+            "adx_len",
+            "adx_level",
+            "use_obv",
+            "obv_sma_len",
+            "min_score",
+        }
         for key in invalid_keys:
             self.assertNotIn(key, DEFAULTS)
 
     def test_defaults_has_required_keys(self):
         from spotbot.ui.indicator_params_dialog import DEFAULTS
+
         for key in ("bb_period", "bb_dev", "use_atr", "atr_period", "signal_source"):
             self.assertIn(key, DEFAULTS)
 
@@ -319,12 +368,14 @@ class TestAlertIndicatorListSimplified(unittest.TestCase):
 
     def test_no_rsi_macd_cci_adx_obv(self):
         from spotbot.ui.alert_dialog import INDICATOR_LIST
+
         flat = " ".join(INDICATOR_LIST).lower()
         for name in ("rsi", "macd", "cci", "adx", "obv"):
             self.assertNotIn(name, flat)
 
     def test_has_bb_and_trendline(self):
         from spotbot.ui.alert_dialog import INDICATOR_LIST
+
         self.assertIn("BB Upper", INDICATOR_LIST)
         self.assertIn("BB Lower", INDICATOR_LIST)
         self.assertIn("Trendline", INDICATOR_LIST)
@@ -338,18 +389,22 @@ class TestConstantsDeprecated(unittest.TestCase):
 
     def test_cci_deprecated(self):
         from spotbot.constants import FLI_USE_CCI
+
         self.assertFalse(FLI_USE_CCI)
 
     def test_adx_deprecated(self):
         from spotbot.constants import FLI_USE_ADX
+
         self.assertFalse(FLI_USE_ADX)
 
     def test_obv_deprecated(self):
         from spotbot.constants import FLI_USE_OBV
+
         self.assertFalse(FLI_USE_OBV)
 
     def test_bb_and_atr_still_active(self):
         from spotbot.constants import FLI_USE_ATR, FLI_BB_PERIOD, FLI_BB_DEV
+
         self.assertTrue(FLI_USE_ATR)
         self.assertEqual(FLI_BB_PERIOD, 19)
         self.assertAlmostEqual(FLI_BB_DEV, 0.6)

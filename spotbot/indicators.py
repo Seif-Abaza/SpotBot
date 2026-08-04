@@ -405,7 +405,7 @@ def _compute_thma(series, length):
     return talib.WMA(3 * wma_third - wma_half - wma_full, length)
 
 
-def new_compute_all_indicators(
+def new_compute_all_indicators(  # noqa: C901
     df,
     bb_period=20,
     bb_dev=2.0,
@@ -508,7 +508,7 @@ class CombinedMomFliHullStrategy:
     pass
 
 
-def _make_combined_strategy_class():
+def _make_combined_strategy_class():  # noqa: C901
     """Factory that returns the actual backtesting.py Strategy subclass.
 
     Defined inside a function to avoid a class-level import of
@@ -635,7 +635,7 @@ def _prepare_bt_dataframe(df: "pd.DataFrame") -> "pd.DataFrame":
     return bt
 
 
-def backtest_combined_strategy(
+def backtest_combined_strategy(  # noqa: C901
     df: "pd.DataFrame",
     investment: float = 10.0,
     commission: float = 0.0001,

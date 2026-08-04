@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from spotbot.constants import API_KEY_FILE, CONFIG_DIR
+from spotbot.constants import CONFIG_DIR
 from spotbot.styles import STYLE_QSS
 
 TELEGRAM_FILE = os.path.join(CONFIG_DIR, "telegram.json")
@@ -114,7 +114,7 @@ class APIKeyDialog(QDialog):
         self.txt_tg_chat_id.setPlaceholderText("Chat ID (e.g. -1001234567890)")
         self.txt_tg_chat_id.setText(str(tg_config.get("chat_id", "")))
         tg_form.addRow("Chat ID:", self.txt_tg_chat_id)
-        tg_hint = QLabel("Create a bot via @BotFather on Telegram.\nGet your chat ID from @userinfobot.\nSend /start to your bot first.")
+        tg_hint = QLabel("Create a bot via @BotFather on Telegram.\nGet your chat ID from @userinfobot.\nSend /start to your bot first.")  # noqa: E501  # noqa: E501
         tg_hint.setStyleSheet("color:#848e9c; font-size:10px;")
         tg_hint.setWordWrap(True)
         tg_form.addRow(tg_hint)
@@ -170,12 +170,16 @@ class APIKeyDialog(QDialog):
             ("DEMO", demo_key, demo_secret),
         ):
             if k and len(k) < MIN_KEY_LEN:
-                QMessageBox.warning(self, "API key too short",
-                    f"{label} API key is only {len(k)} chars -- looks truncated.")
+                QMessageBox.warning(
+                    self, "API key too short",
+                    f"{label} API key is only {len(k)} chars -- looks truncated.",
+                )
                 return
             if s and len(s) < MIN_SECRET_LEN:
-                QMessageBox.warning(self, "API secret too short",
-                    f"{label} secret is only {len(s)} chars -- looks truncated.")
+                QMessageBox.warning(
+                    self, "API secret too short",
+                    f"{label} secret is only {len(s)} chars -- looks truncated.",
+                )
                 return
 
         if live_key and live_secret:

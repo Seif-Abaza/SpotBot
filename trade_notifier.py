@@ -35,8 +35,23 @@ if IS_WINDOWS:
 else:
     WINOTIFY_AVAILABLE = False
 
-from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
-from PyQt6.QtGui import QAction, QIcon
+try:
+    from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+    from PyQt6.QtGui import QAction, QIcon
+
+    QT_AVAILABLE = True
+except ImportError:
+    try:
+        from PySide6.QtWidgets import QSystemTrayIcon, QMenu
+        from PySide6.QtGui import QAction, QIcon
+
+        QT_AVAILABLE = True
+    except ImportError:
+        QSystemTrayIcon = QMenu = QAction = QIcon = None
+        QT_AVAILABLE = False
+        print(
+            "[NOTIFIER] Neither PyQt6 nor PySide6 available — Qt tray notifications disabled"
+        )
 
 
 try:
@@ -112,6 +127,9 @@ class TradeNotifier:
         )
 
     def _ensure_qt_tray(self) -> QSystemTrayIcon:
+        if not QT_AVAILABLE:
+            print("[NOTIFIER] Qt not available — tray notification skipped")
+            return None
         if self._qt_tray is None:
             self._qt_tray = QSystemTrayIcon()
             if self.icon_path:
@@ -192,6 +210,8 @@ class TradeNotifier:
             toast.show()
         else:
             tray = self._ensure_qt_tray()
+            if tray is None:
+                return
             tray.showMessage(
                 title, message, QSystemTrayIcon.MessageIcon.Information, 5000
             )

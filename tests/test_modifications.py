@@ -12,8 +12,7 @@ Covers:
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 # ── Ensure project root is on path ──
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,6 +53,7 @@ class TestExchangeConnect(unittest.TestCase):
         }
         self.assertTrue(config.get("adjustForTimeDifference"))
         self.assertEqual(config["options"]["recvWindow"], 20000)
+
     @patch("spotbot.exchange.CCXT_AVAILABLE", False)
     def test_connect_returns_true_when_no_ccxt(self):
         from spotbot.exchange import ExchangeManager
@@ -88,7 +88,6 @@ class TestExecuteOrderForce(unittest.TestCase):
 
     def test_normal_buy_skipped_when_trading_disabled(self):
         """Without force, buy should be skipped when trading not enabled."""
-        from spotbot.trading import TradingEngine
         engine = self._make_engine(trading_enabled=False)
         # Directly call the logic (we test the gate logic, not the full method)
         # The method checks: if not force and not trading_enabled -> skip
@@ -101,7 +100,6 @@ class TestExecuteOrderForce(unittest.TestCase):
 
     def test_force_buy_bypasses_trading_disabled(self):
         """With force=True, buy should NOT be skipped even when trading disabled."""
-        from spotbot.trading import TradingEngine
         engine = self._make_engine(trading_enabled=False)
         force = True
         if not force and not engine.trading_enabled:

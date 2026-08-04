@@ -17,12 +17,13 @@ import sys
 try:
     import types as _types
 
-    import PySide6
+    # import PySide6
 
     # PySide6 submodules aren't auto-imported; import them explicitly
-    import PySide6.QtCore
-    import PySide6.QtGui
-    import PySide6.QtWidgets
+    # import PySide6.QtCore
+    # import PySide6.QtGui
+
+    # import PySide6.QtWidgets
 
     if "PyQt6" not in sys.modules:
         _pkg = _types.ModuleType("PyQt6")

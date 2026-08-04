@@ -1,7 +1,6 @@
 """Per-day trade logging: transactions/ JSON files + daily P&L ledger."""
 
 import json
-import os
 import threading
 from datetime import datetime, timezone
 

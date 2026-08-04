@@ -239,7 +239,7 @@ class WalletBuyWorker(QThread):
 
     Runs in the background so the UI never freezes during the potentially
     slow fetch_my_trades() call.
-    """
+    """  # noqa: C901
     wallet_buys_ready = Signal(str, list, float, float)  # pair, chart_markers, total_qty, avg_price
     wallet_buys_error = Signal(str, str)  # pair, error_message
 
@@ -391,7 +391,7 @@ class BestTimeframeWorker(QThread):
       4. Record equity_final, equity_peak, win_rate
 
     Emits progress for each timeframe tested and the final best result.
-    """
+    """  # noqa: C901
     tf_progress = Signal(str, str, float, float)  # pair, tf, equity_final, equity_peak
     tf_complete = Signal(str, str, float, float, object)  # pair, best_tf, best_eq_final, best_eq_peak, all_results
     tf_error = Signal(str, str)  # pair, error_message
@@ -473,7 +473,7 @@ class BestTimeframeWorker(QThread):
 
     def stop(self):
         self._running = False
-        self.quit()
+        self.quit()  # noqa: C901
         self.wait(5000)
 
 

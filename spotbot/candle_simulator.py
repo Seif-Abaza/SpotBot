@@ -9,7 +9,6 @@ trading-engine evaluation, chart rendering, backtest, PnL) runs on the
 real code-paths unchanged.
 """
 
-import math
 import random
 import time
 from typing import Optional

@@ -6,41 +6,40 @@ live here so every submodule can import from a single source of truth.
 
 from pathlib import Path
 import os
-import sys
 
 # ── Optional dependency import guards ──────────────────────────────────
 # These flags are checked throughout the codebase so the app degrades
 # gracefully when an optional dependency is missing.
 try:
-    import ccxt
+    import ccxt  # noqa: F401
 
     CCXT_AVAILABLE = True
 except ImportError:
     CCXT_AVAILABLE = False
 
 try:
-    import ccxt.pro as ccxtpro
+    import ccxt.pro as ccxtpro  # noqa: F401
 
     CCXT_PRO_AVAILABLE = True
 except ImportError:
     CCXT_PRO_AVAILABLE = False
 
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401
 
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
 
 try:
-    import pandas as pd
+    import pandas as pd  # noqa: F401
 
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
 
 try:
-    import trade_notifier
+    import trade_notifier  # noqa: F401
 
     TRADE_NOTIFIER_AVAILABLE = True
 except ImportError:
@@ -77,6 +76,7 @@ RSI_SELL_CONFIRM = 65  # 1-candle confirmation threshold (relaxed)
 MACD_BUY_CONFIRM_EPS = 0.0  # MACD line must stay above signal line to confirm
 MACD_SELL_CONFIRM_EPS = 0.0  # MACD line must stay below signal line to confirm
 FLOAT_EPS = 1e-12  # tiny epsilon for "quantity is effectively zero" checks
+DUST_THRESHOLD = 1e-6  # residual base-coin dust (e.g. 1e-8) after a full sell that should NOT block a new buy
 
 # ── Order execution constants (Code Review Low #12: extract magic numbers) ──
 # Used by TradingEngine._execute_order for slippage/fee modeling in SIMULATOR

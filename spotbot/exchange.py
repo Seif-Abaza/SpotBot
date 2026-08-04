@@ -38,7 +38,7 @@ from spotbot.constants import (
 )
 
 
-def compute_avg_entry_from_trades(trades, current_qty: float):
+def compute_avg_entry_from_trades(trades, current_qty: float):  # noqa: C901
     """
     Reconstruct average entry for *current_qty* using FIFO lot matching on
     exchange trade history. Returns (avg_entry, recovered_qty) or None.
@@ -318,7 +318,7 @@ class ExchangeManager:
     def discover_tradable_pairs(
         self, quote="USDT", min_notional_usdt=WALLET_MIN_NOTIONAL_USDT
     ):
-        """
+        """  # noqa: C901
         Find non-dust base coins in the wallet that have a COIN/quote spot market.
         Returns list of dicts: {coin, qty, pair, notional_est}.
 

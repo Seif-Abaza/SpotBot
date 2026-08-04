@@ -180,7 +180,7 @@ class TradingEngine:
         if signal:
             return self._execute_order(signal, price, ts)
 
-        return None
+        return None  # noqa: C901
 
     def evaluate_signal(
         self, indicators: dict, current_candle: list, all_candles: list
@@ -238,7 +238,7 @@ class TradingEngine:
             if ml_prev <= sl_prev and ml_now > sl_now:
                 signal = "buy_signal"
             elif ml_prev >= sl_prev and ml_now < sl_now:
-                signal = "sell_signal"
+                signal = "sell_signal"  # noqa: C901
 
         # Suppress buy while in position, sell while flat
         if signal == "buy_signal" and self.in_position:

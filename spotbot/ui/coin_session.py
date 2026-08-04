@@ -1,32 +1,6 @@
 """Per-coin session: holds ExchangeManager, TradingEngine, ChartRenderer, workers."""
 
-import json
-import time
-
-from PySide6.QtCore import QObject, Signal, Slot, QThread
-from PySide6.QtWidgets import QWidget
-
-from spotbot.constants import (
-    CANDLE_LIMIT,
-    FLOAT_EPS,
-    NUMPY_AVAILABLE,
-    PANDAS_AVAILABLE,
-    REFRESH_MS,
-    TIMEFRAME_MAP,
-    TRADE_HISTORY_LIMIT,
-)
-from spotbot.exchange import ExchangeManager
 from spotbot.trading import TradingEngine
-from spotbot.transaction_logger import TransactionLogger
-from spotbot.chart_renderer import ChartRenderer, FLIChartWorker
-from spotbot.workers import (
-    DataFetchWorker,
-    IndicatorCalcWorker,
-    ParallelPipeline,
-    PairLoaderWorker,
-    ProcessWorker,
-    WebSocketWorker,
-)
 
 
 class CoinSession:
